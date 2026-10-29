@@ -1,0 +1,12 @@
+/* Additional links and consistent interactive surfaces. Existing page layout remains intact. */
+.sidebar .bf-extra-link,.side .bf-extra-link{display:flex!important;align-items:center;gap:10px;padding:12px 13px;border-radius:10px;color:#6366a2;text-decoration:none;font-size:14px;font-weight:600;line-height:1.4;margin:4px 0;transition:background-color .16s,color .16s}
+.sidebar .bf-extra-link:hover,.sidebar .bf-extra-link.active,.side .bf-extra-link:hover,.side .bf-extra-link.active{background:#eef2ff!important;color:#4338ca!important;font-weight:750}
+.sidebar .bf-nav-section,.side .bf-nav-section{font-size:10px;font-weight:750;color:#94a3b8;letter-spacing:.08em;padding:15px 12px 5px;text-transform:uppercase;display:block}
+.sidebar .bf-extra-link .bf-icon,.side .bf-extra-link .bf-icon{display:inline-flex;align-items:center;justify-content:center;width:24px;min-width:24px;font-size:19px}
+:where(button,.btn,.button,.btn-primary,.primary-btn,.action):not(:disabled){transition:background-color .17s,box-shadow .17s,transform .17s}
+:where(button,.btn,.button,.btn-primary,.primary-btn,.action):not(:disabled):hover{filter:brightness(.96)}
+:where(button,.btn,.button,.btn-primary,.primary-btn,.action):focus-visible{outline:3px solid #a5b4fc!important;outline-offset:3px}
+button{touch-action:manipulation}
+:where(input,select,textarea):focus-visible{outline:2px solid #a5b4fc;outline-offset:1px}
+:where(.sidebar,.side) nav{scrollbar-width:thin}
+@media(min-width:1100px){.sidebar{visibility:visible!important}}
