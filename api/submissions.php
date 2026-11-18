@@ -437,6 +437,24 @@ try {
         throw $err;
     }
 } catch (Throwable $err) {
-    error_log('[BrightFuture Submissions API] ' . $err->getMessage());
-    subapi_send(500, 'Có lỗi hệ thống khi xử lý bài nộp. Vui lòng thử lại sau.');
+    // Never print raw SQL, credentials, stack traces or hosting paths to the browser.
+    // Log an opaque reference so the site operator can match an error with PHP logs.
+    $ref = bin2hex(random_bytes(4));
+    $sqlState = $err instanceof PDOException ? (string)$err->getCode() : '';
+    error_log('[BrightFuture Submissions API][' . $ref . ']' .
+        ' type=' . get_class($err) . ' sqlstate=' . $sqlState .
+        ' detail=' . $err->getMessage());
+
+    if ($err instanceof PDOException) {
+        if ($sqlState === '42S22' || $sqlState === '42S02') {
+            subapi_send(500, 'Cấu trúc database đang thiếu bảng hoặc cột phục vụ nộp bài. Hãy kiểm tra bản SQL nâng cấp. Mã lỗi: ' . $ref);
+        }
+        if ($sqlState === '23000') {
+            subapi_send(500, 'Không lưu được bài nộp do ràng buộc khóa hoặc dữ liệu liên kết trong MySQL. Hãy kiểm tra PRIMARY KEY, AUTO_INCREMENT và FOREIGN KEY. Mã lỗi: ' . $ref);
+        }
+        if (in_array($sqlState, ['HY000', '42000'], true)) {
+            subapi_send(500, 'MySQL không thể xử lý thao tác lưu hoặc chấm bài. Kiểm tra cấu trúc bảng bài nộp và nhật ký PHP. Mã lỗi: ' . $ref);
+        }
+    }
+    subapi_send(500, 'Có lỗi máy chủ khi xử lý bài nộp. Mã lỗi: ' . $ref);
 }

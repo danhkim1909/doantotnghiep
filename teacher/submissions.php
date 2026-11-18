@@ -236,6 +236,8 @@ $initial = function_exists('mb_substr') ? mb_substr($name,0,1,'UTF-8') : substr(
 @media(max-width:900px){.sidebar{transform:translateX(-100%);transition:transform .2s}.sidebar.open{transform:none}.overlay.open{display:block;position:fixed;inset:0;background:#0f172a66;z-index:9}.mobile-toggle{display:block}.main{margin-left:0}.topbar{padding:0 18px}.content{padding:22px}}
 @media(max-width:600px){.stats{grid-template-columns:repeat(2,1fr)}.filters{grid-template-columns:1fr}.panel{padding:15px}.heading h1{font-size:24px}.account .name{display:none}}
 </style><link rel="stylesheet" href="<?= e(app_url('css/bf-legacy-fixes.css')) ?>">
+
+<link rel="stylesheet" href="<?= e(app_url('css/bf-ux-refresh.css')) ?>">
 </head>
 <body>
 <div class="overlay" id="overlay"></div>
@@ -300,4 +302,6 @@ function menu(open){sidebar.classList.toggle('open',open);overlay.classList.togg
 toggle.addEventListener('click',()=>menu(!sidebar.classList.contains('open')));overlay.addEventListener('click',()=>menu(false));document.addEventListener('keydown',e=>{if(e.key==='Escape')menu(false)});
 </script><script>window.BF_LEGACY={role:'teacher',base:<?= json_encode(rtrim(BASE_URL, '/')) ?>};</script>
 <script src="<?= e(app_url('js/bf-legacy-fixes.js')) ?>" defer></script>
+
+<script src="<?= e(app_url('js/bf-ux-refresh.js')) ?>" defer></script>
 </body></html>

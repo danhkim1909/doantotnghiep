@@ -1,5 +1,6 @@
-
 <?php
+
+require_once __DIR__ . '/env.php';
 /**
  * ====================================================
  * BRIGHTFUTURE - APPLICATION CONFIGURATION
@@ -33,12 +34,12 @@ defined('APP_VERSION') ||
 
 // development | production
 defined('APP_ENV') ||
-    define('APP_ENV', 'development');
+    define('APP_ENV', env_value('APP_ENV', 'development'));
 
 defined('APP_DEBUG') ||
     define(
         'APP_DEBUG',
-        APP_ENV === 'development'
+        filter_var(env_value('APP_DEBUG', APP_ENV === 'development' ? 'true' : 'false'), FILTER_VALIDATE_BOOLEAN)
     );
 
 
@@ -46,7 +47,7 @@ defined('APP_DEBUG') ||
 // 2. MUI GIO
 // ====================================================
 
-date_default_timezone_set('Asia/Ho_Chi_Minh');
+date_default_timezone_set(env_value('APP_TIMEZONE', 'Asia/Ho_Chi_Minh'));
 
 
 // ====================================================
@@ -99,7 +100,7 @@ defined('UPLOAD_PATH') ||
 defined('BASE_URL') ||
     define(
         'BASE_URL',
-        '/BrightFuture-Educational-Website-main'
+        env_value('BASE_URL', '/BrightFuture-Educational-Website-main')
     );
 
 

@@ -197,6 +197,8 @@ $avatar = function_exists('mb_substr') ? mb_substr($fullName, 0, 1, 'UTF-8') : s
         @media(max-width:380px){.summary{grid-template-columns:1fr}}
     </style>
 <link rel="stylesheet" href="<?= e(app_url('css/bf-legacy-fixes.css')) ?>">
+
+<link rel="stylesheet" href="<?= e(app_url('css/bf-ux-refresh.css')) ?>">
 </head>
 <body>
 <div id="overlay" class="overlay" aria-hidden="true"></div>
@@ -318,5 +320,7 @@ $avatar = function_exists('mb_substr') ? mb_substr($fullName, 0, 1, 'UTF-8') : s
 </script>
 <script>window.BF_LEGACY={role:'student',base:<?= json_encode(rtrim(BASE_URL, '/')) ?>};</script>
 <script src="<?= e(app_url('js/bf-legacy-fixes.js')) ?>" defer></script>
+
+<script src="<?= e(app_url('js/bf-ux-refresh.js')) ?>" defer></script>
 </body>
 </html>

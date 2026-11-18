@@ -1,5 +1,6 @@
 <?php
 /** BrightFuture - Bao cao quan tri. PHP 8+, MySQL 8+. */
+declare(strict_types=1);
 require_once __DIR__ . '/../includes/permissions.php';
 $admin = require_role(ROLE_ADMIN);
 header('Cache-Control: no-store, no-cache, must-revalidate, private');
@@ -59,13 +60,32 @@ try {
         $overview[$key] = (int)$stmt->fetchColumn();
     }
 
-    // Trung binh % bai hoc hoan thanh cua cac luot dang ky trong khoang.
-    // VIEW tinh tien do hien tai, khong phai anh chup lich su tai thoi diem dang ky.
+    // Tinh tien do hien tai truc tiep tu bang goc: InfinityFree khong cho CREATE VIEW.
+    // Moi luot ghi danh trong ky co mot gia tri % (0 neu khoa khong co bai cong khai).
+    // Chi dem bai hoc published, chi dem hoan thanh cua dung hoc vien va khoa hoc.
     $stmt = $pdo->prepare(
-        "SELECT ROUND(AVG(COALESCE(p.progress_percent, 0)), 2)
+        "SELECT ROUND(AVG(
+                    CASE WHEN COALESCE(t.total_lessons, 0) = 0 THEN 0
+                         ELSE 100.0 * COALESCE(d.completed_lessons, 0) / t.total_lessons
+                    END
+                ), 2) AS average_progress
            FROM enrollments e
-           LEFT JOIN view_student_course_progress p ON p.student_id=e.student_id AND p.course_id=e.course_id
-          WHERE e.enrolled_at >= ? AND e.enrolled_at < ? AND e.status IN ('active','completed')"
+           LEFT JOIN (
+               SELECT ch.course_id, COUNT(l.id) AS total_lessons
+                 FROM course_chapters ch
+                 JOIN lessons l ON l.chapter_id = ch.id AND l.status = 'published'
+                GROUP BY ch.course_id
+           ) t ON t.course_id = e.course_id
+           LEFT JOIN (
+               SELECT lp.student_id, ch.course_id, COUNT(*) AS completed_lessons
+                 FROM lesson_progress lp
+                 JOIN lessons l ON l.id = lp.lesson_id AND l.status = 'published'
+                 JOIN course_chapters ch ON ch.id = l.chapter_id
+                WHERE lp.status = 'completed'
+                GROUP BY lp.student_id, ch.course_id
+           ) d ON d.student_id = e.student_id AND d.course_id = e.course_id
+          WHERE e.enrolled_at >= ? AND e.enrolled_at < ?
+            AND e.status IN ('active','completed')"
     );
     $stmt->execute([$fromTime,$toExclusive]);
     $value = $stmt->fetchColumn();
@@ -173,7 +193,8 @@ $chartJson = json_encode($daily, JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HE
 @media(max-width:900px){.sidebar{transform:translateX(-100%)}.sidebar.open{transform:translateX(0)}.main{margin-left:0}.toggle{display:block}.overlay.open{display:block;position:fixed;inset:0;z-index:30;background:#0f172a66}.topbar{height:70px;padding:0 22px}.content{padding:25px 22px}}
 @media(max-width:580px){.content{padding:20px 15px 45px}.metrics{grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}.metric{padding:14px}.metric strong{font-size:23px}.topbar{padding:0 15px}.identity>span:first-child{display:none}h1{font-size:24px}.filter input{width:100%}.filter label{flex:1;min-width:130px}.panel{padding:16px}}
 </style>
-<link rel="stylesheet" href="<?= e(app_url('css/bf-legacy-fixes.css')) ?>">
+
+<link rel="stylesheet" href="<?= e(app_url('css/bf-ux-refresh.css')) ?>">
 </head>
 <body>
 <div class="overlay" id="overlay"></div>
@@ -205,7 +226,7 @@ $chartJson = json_encode($daily, JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HE
    <div class="note" style="width:100%">Dữ liệu từ <?= e(format_date($from)) ?> đến <?= e(format_date($to)) ?> (<?= $days ?> ngày). Các chỉ số hoạt động được tính theo thời điểm phát sinh trong khoảng đã chọn.</div>
   </form>
   <?php foreach ($errors as $error): ?><div class="alert" role="alert"><?= e($error) ?></div><?php endforeach; ?>
-  <?php if ($dataError): ?><div class="alert" role="alert">Không thể tải báo cáo. Kiểm tra MySQL và các bảng/View trong <code>schema.sql</code>, <code>phase2.sql</code>, <code>phase3.sql</code>. Không hiển thị số liệu chưa xác minh.</div><?php else: ?>
+  <?php if ($dataError): ?><div class="alert" role="alert">Không thể tải báo cáo. Vui lòng kiểm tra kết nối MySQL và dữ liệu các bảng nghiệp vụ. Không hiển thị số liệu chưa xác minh.</div><?php else: ?>
   <section class="metrics" aria-label="Chỉ số trong khoảng thời gian">
    <?php foreach ([
       ['♙','Học viên mới','students','Tài khoản student được tạo'],
@@ -283,7 +304,7 @@ $chartJson = json_encode($daily, JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HE
  const interval=Math.max(1,Math.ceil(n/8));if(i%interval===0||i===n-1){elem('text',{x,y:h-18,'text-anchor':'middle',fill:'#64748b','font-size':10},row.label);}});
 })();
 </script>
-<script>window.BF_LEGACY={role:'admin',base:<?= json_encode(rtrim(BASE_URL, '/')) ?>};</script>
-<script src="<?= e(app_url('js/bf-legacy-fixes.js')) ?>" defer></script>
+
+<script src="<?= e(app_url('js/bf-ux-refresh.js')) ?>" defer></script>
 </body>
 </html>

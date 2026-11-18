@@ -1,9 +1,4 @@
 <?php
-/**
- * BrightFuture - Admin Dashboard
- * File: admin/dashboard.php | PHP 8.0+ / MySQL PDO
- */
-
 
 require_once __DIR__ . '/../includes/permissions.php';
 $user = require_role(ROLE_ADMIN);
@@ -23,9 +18,18 @@ $latestCourses = [];
 $latestSubmissions = [];
 $registrationTrend = [];
 $dataError = false;
+$failedSections = [];
+$pdo = null;
 
+// One failing query must never hide all the other dashboard sections.
 try {
     $pdo = db();
+} catch (Throwable $exception) {
+    error_log('[BrightFuture Admin Dashboard] [connection] ' . $exception->getMessage());
+    $failedSections[] = 'Kết nối cơ sở dữ liệu';
+}
+
+if ($pdo instanceof PDO) {
     $queries = [
         'users' => "SELECT COUNT(CASE WHEN role = 'student' THEN 1 END) AS students, COUNT(CASE WHEN role = 'teacher' THEN 1 END) AS teachers, COUNT(CASE WHEN role = 'admin' THEN 1 END) AS admins FROM users",
         'courses' => "SELECT COUNT(*) AS courses, COUNT(CASE WHEN status = 'published' THEN 1 END) AS published_courses, COUNT(CASE WHEN status = 'draft' THEN 1 END) AS draft_courses FROM courses",
@@ -35,69 +39,92 @@ try {
         'submissions' => "SELECT COUNT(*) AS submissions, COUNT(CASE WHEN status IN ('submitted','grading') THEN 1 END) AS pending_submissions FROM exercise_submissions",
         'enrollments' => "SELECT COUNT(*) AS enrollments FROM enrollments WHERE status IN ('active','completed')",
     ];
-    foreach ($queries as $sql) {
-        $row = $pdo->query($sql)->fetch(PDO::FETCH_ASSOC);
-        foreach (($row ?: []) as $key => $value) {
-            if (array_key_exists($key, $stats)) {
-                $stats[$key] = (int) $value;
+    $labels = [
+        'users' => 'Thống kê tài khoản',
+        'courses' => 'Thống kê khóa học',
+        'lessons' => 'Thống kê bài giảng',
+        'chapters' => 'Thống kê chương học',
+        'exercises' => 'Thống kê bài tập',
+        'submissions' => 'Thống kê bài nộp',
+        'enrollments' => 'Thống kê ghi danh',
+    ];
+    foreach ($queries as $section => $sql) {
+        try {
+            $row = $pdo->query($sql)->fetch(PDO::FETCH_ASSOC);
+            foreach (($row ?: []) as $key => $value) {
+                if (array_key_exists($key, $stats)) {
+                    $stats[$key] = (int) $value;
+                }
             }
+        } catch (Throwable $exception) {
+            error_log('[BrightFuture Admin Dashboard] [' . $section . '] ' . $exception->getMessage());
+            $failedSections[] = $labels[$section];
         }
     }
 
-    $latestUsers = $pdo->query(
-        "SELECT id, full_name, email, role, created_at
-         FROM users ORDER BY created_at DESC, id DESC LIMIT 6"
-    )->fetchAll();
-
-    $latestCourses = $pdo->query(
-        "SELECT c.id, c.title, c.status, c.level, c.created_at,
+    $sections = [
+        'Người dùng mới' => [
+            "SELECT id, full_name, email, role, created_at FROM users ORDER BY created_at DESC, id DESC LIMIT 6",
+            'latestUsers'
+        ],
+        'Khóa học mới' => [
+            "SELECT c.id, c.title, c.status, c.level, c.created_at,
                 u.full_name AS teacher_name,
-                (SELECT COUNT(*) FROM enrollments en
-                   WHERE en.course_id = c.id AND en.status IN ('active','completed')) AS student_count
-         FROM courses c INNER JOIN users u ON u.id = c.teacher_id
-         ORDER BY c.created_at DESC, c.id DESC LIMIT 6"
-    )->fetchAll();
-
-    $latestSubmissions = $pdo->query(
-        "SELECT es.id, es.status, es.score, es.submitted_at,
+                (SELECT COUNT(*) FROM enrollments en WHERE en.course_id = c.id AND en.status IN ('active','completed')) AS student_count
+             FROM courses c INNER JOIN users u ON u.id = c.teacher_id
+             ORDER BY c.created_at DESC, c.id DESC LIMIT 6",
+            'latestCourses'
+        ],
+        'Bài nộp gần đây' => [
+            "SELECT es.id, es.status, es.score, es.submitted_at,
                 st.full_name AS student_name, ex.title AS exercise_title,
                 c.title AS course_title
-         FROM exercise_submissions es
-         INNER JOIN users st ON st.id = es.student_id
-         INNER JOIN exercises ex ON ex.id = es.exercise_id
-         INNER JOIN lessons l ON l.id = ex.lesson_id
-         INNER JOIN course_chapters cc ON cc.id = l.chapter_id
-         INNER JOIN courses c ON c.id = cc.course_id
-         ORDER BY es.submitted_at DESC, es.id DESC LIMIT 6"
-    )->fetchAll();
+             FROM exercise_submissions es
+             INNER JOIN users st ON st.id = es.student_id
+             INNER JOIN exercises ex ON ex.id = es.exercise_id
+             INNER JOIN lessons l ON l.id = ex.lesson_id
+             INNER JOIN course_chapters cc ON cc.id = l.chapter_id
+             INNER JOIN courses c ON c.id = cc.course_id
+             ORDER BY es.submitted_at DESC, es.id DESC LIMIT 6",
+            'latestSubmissions'
+        ],
+    ];
+    foreach ($sections as $name => $definition) {
+        try {
+            ${$definition[1]} = $pdo->query($definition[0])->fetchAll(PDO::FETCH_ASSOC);
+        } catch (Throwable $exception) {
+            error_log('[BrightFuture Admin Dashboard] [' . $name . '] ' . $exception->getMessage());
+            $failedSections[] = $name;
+        }
+    }
 
-    // Daily registrations over the last 7 calendar days (including today).
-    $stmt = $pdo->query(
-        "SELECT DATE(created_at) AS day, COUNT(*) AS total
-         FROM users
-         WHERE created_at >= DATE_SUB(CURDATE(), INTERVAL 6 DAY)
-           AND created_at < DATE_ADD(CURDATE(), INTERVAL 1 DAY)
-         GROUP BY DATE(created_at)"
-    );
-    $dailyMap = [];
-    foreach ($stmt->fetchAll() as $item) {
-        $dailyMap[(string) $item['day']] = (int) $item['total'];
+    try {
+        $stmt = $pdo->query(
+            "SELECT DATE(created_at) AS day, COUNT(*) AS total
+             FROM users
+             WHERE created_at >= DATE_SUB(CURDATE(), INTERVAL 6 DAY)
+               AND created_at < DATE_ADD(CURDATE(), INTERVAL 1 DAY)
+             GROUP BY DATE(created_at)"
+        );
+        $dailyMap = [];
+        foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $item) {
+            $dailyMap[(string) $item['day']] = (int) $item['total'];
+        }
+        $today = new DateTimeImmutable('today');
+        for ($i = 6; $i >= 0; $i--) {
+            $day = $today->modify('-' . $i . ' days');
+            $key = $day->format('Y-m-d');
+            $registrationTrend[] = [
+                'day' => $day->format('d/m'),
+                'count' => $dailyMap[$key] ?? 0,
+            ];
+        }
+    } catch (Throwable $exception) {
+        error_log('[BrightFuture Admin Dashboard] [registrationTrend] ' . $exception->getMessage());
+        $failedSections[] = 'Biểu đồ tài khoản mới';
     }
-    $today = new DateTimeImmutable('today');
-    for ($i = 6; $i >= 0; $i--) {
-        $day = $today->modify('-' . $i . ' days');
-        $key = $day->format('Y-m-d');
-        $registrationTrend[] = [
-            'day' => $day->format('d/m'),
-            'count' => $dailyMap[$key] ?? 0,
-        ];
-    }
-} catch (Throwable $exception) {
-    error_log('[BrightFuture Admin Dashboard] ' . $exception->getMessage());
-    $dataError = true;
-    // Show a clear failure, not misleading zero values.
-    $latestUsers = $latestCourses = $latestSubmissions = $registrationTrend = [];
 }
+$dataError = count($failedSections) > 0;
 
 function admin_role_label(string $role): string
 {
@@ -132,7 +159,7 @@ function admin_initial(string $fullName): string
     return $fullName === '' ? '?' : (function_exists('mb_substr')
         ? mb_substr($fullName, 0, 1, 'UTF-8') : substr($fullName, 0, 1));
 }
-$maxTrend = max(1, ...array_map(static fn(array $d): int => $d['count'], $registrationTrend));
+$maxTrend = max(array_merge([1], array_map(static fn(array $d): int => (int) $d['count'], $registrationTrend)));
 $cards = [
     ['label' => 'Học viên', 'key' => 'students', 'icon' => '🎓', 'tone' => 'purple'],
     ['label' => 'Giáo viên', 'key' => 'teachers', 'icon' => '👩‍🏫', 'tone' => 'blue'],
@@ -176,7 +203,8 @@ $menu = [
 @media(max-width:900px){.sidebar{transform:translateX(-100%)}.sidebar.open{transform:translateX(0)}.overlay.open{display:block;position:fixed;inset:0;z-index:90;background:#0f172a80}.main{margin-left:0}.hamburger{display:block}.topbar{height:70px;padding:0 22px}.content{padding:24px 22px}}
 @media(max-width:590px){.stats{grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}.stat{padding:15px}.stat strong{font-size:23px}.stat-icon{width:34px;height:34px;font-size:18px}.content{padding:16px 14px 35px}.topbar{padding:0 14px}.topbar-name{display:none}.banner{padding:25px 20px}.panel{padding:17px}.short-grid{grid-template-columns:1fr}.table{min-width:540px}}
 </style>
-<link rel="stylesheet" href="<?= e(app_url('css/bf-legacy-fixes.css')) ?>">
+
+<link rel="stylesheet" href="<?= e(app_url('css/bf-ux-refresh.css')) ?>">
 </head>
 <body>
 <div id="overlay" class="overlay" aria-hidden="true"></div>
@@ -198,8 +226,12 @@ $menu = [
     <main class="content">
         <div class="banner"><small>BRIGHTFUTURE · ADMIN PANEL</small><h1>Xin chào, <?= e((string)$user['full_name']) ?>!</h1><p>Tổng quan người dùng, khóa học, hoạt động giảng dạy và tình hình học tập trên toàn hệ thống.</p></div>
         <?php if ($dataError): ?>
-            <div class="alert" role="alert"><strong>Không thể tải dữ liệu quản trị.</strong> Vui lòng kiểm tra MySQL và các bảng trong <code>schema.sql</code>, <code>phase2.sql</code>, <code>phase3.sql</code>. Xem PHP error log để biết nguyên nhân.</div>
-        <?php else: ?>
+            <div class="alert" role="alert"><strong>Một số phần thống kê chưa tải được:</strong>
+                <?= e(implode('; ', array_unique($failedSections))) ?>.
+                Các phần còn lại vẫn được hiển thị; số 0 ở nhóm gặp lỗi chưa được xác minh.
+                Hãy kiểm tra PHP error log để biết nguyên nhân chi tiết.
+            </div>
+        <?php endif; ?>
         <section class="stats" aria-label="Thống kê hệ thống">
             <?php foreach ($cards as $card): ?>
             <article class="stat"><div><p><?= e($card['label']) ?></p><strong><?= format_number($stats[$card['key']]) ?></strong></div><span class="stat-icon <?= e($card['tone']) ?>" aria-hidden="true"><?= e($card['icon']) ?></span></article>
@@ -249,7 +281,6 @@ $menu = [
                 <?php foreach ($latestSubmissions as $item): ?><tr><td class="name"><?= e((string)$item['student_name']) ?></td><td><div class="name"><?= e((string)$item['exercise_title']) ?></div><div class="secondary"><?= e((string)$item['course_title']) ?></div></td><td><span class="chip <?= e(admin_status_class((string)$item['status'])) ?>"><?= e(admin_status_label((string)$item['status'])) ?></span></td><td><?= $item['score'] === null ? '—' : e(format_number((float)$item['score'], 2)) ?></td><td><?= e(format_datetime((string)$item['submitted_at'])) ?></td></tr><?php endforeach; ?>
             </tbody></table></div><?php endif; ?>
         </section>
-        <?php endif; ?>
     </main>
 </div>
 <script>
@@ -269,7 +300,7 @@ document.addEventListener('DOMContentLoaded', () => {
     window.addEventListener('resize', () => { if (window.innerWidth > 900) openMenu(false); });
 });
 </script>
-<script>window.BF_LEGACY={role:'admin',base:<?= json_encode(rtrim(BASE_URL, '/')) ?>};</script>
-<script src="<?= e(app_url('js/bf-legacy-fixes.js')) ?>" defer></script>
+
+<script src="<?= e(app_url('js/bf-ux-refresh.js')) ?>" defer></script>
 </body>
 </html>

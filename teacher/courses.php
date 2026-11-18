@@ -84,12 +84,40 @@ if (is_post()) {
         exit('Bạn không có quyền thao tác với khóa học này.');
     }
     if ($action === 'delete') {
-        // Deleting a course cascades to chapters, lessons, exercises, enrollments, progress and submissions.
-        $stmt = $pdo->prepare('DELETE FROM courses WHERE id = :id AND teacher_id = :teacher_id');
-        $stmt->execute(['id'=>$id, 'teacher_id'=>$teacherId]);
-        if ($stmt->rowCount() !== 1) { http_response_code(409); exit('Khóa học đã thay đổi.'); }
-        tc_remove_own_thumbnail($existing['thumbnail']);
-        tc_flash('success', 'Đã xóa khóa học và các dữ liệu liên quan.');
+        // Never cascade-delete lessons, submissions or a learner's progress from course management.
+        if ($existing['status'] !== 'draft') {
+            tc_flash('error', 'Chỉ được xóa khóa học ở trạng thái Bản nháp.');
+            tc_back();
+        }
+        try {
+            // The course must be empty: otherwise cascading FK deletes could destroy graded answers.
+            $checkChapters = $pdo->prepare('SELECT COUNT(*) FROM course_chapters WHERE course_id = :course_id');
+            $checkChapters->execute(['course_id' => $id]);
+            if ((int)$checkChapters->fetchColumn() > 0) {
+                tc_flash('error', 'Khóa học còn chương hoặc bài giảng. Hãy xử lý các nội dung bản nháp trước; không thể xóa cả khóa học để tránh mất dữ liệu học tập.');
+                tc_back();
+            }
+            $checkLearners = $pdo->prepare('SELECT COUNT(*) FROM enrollments WHERE course_id = :course_id');
+            $checkLearners->execute(['course_id' => $id]);
+            if ((int)$checkLearners->fetchColumn() > 0) {
+                tc_flash('error', 'Khóa học đã có học viên đăng ký. Không thể xóa vì cần bảo toàn dữ liệu học tập.');
+                tc_back();
+            }
+            $stmt = $pdo->prepare("DELETE FROM courses WHERE id = :id AND teacher_id = :teacher_id AND status = 'draft'");
+            $stmt->execute(['id' => $id, 'teacher_id' => $teacherId]);
+            if ($stmt->rowCount() !== 1) {
+                tc_flash('error', 'Khóa học đã thay đổi trạng thái hoặc không còn tồn tại.');
+                tc_back();
+            }
+            tc_remove_own_thumbnail($existing['thumbnail']);
+            tc_flash('success', 'Đã xóa khóa học bản nháp chưa có dữ liệu học tập.');
+        } catch (PDOException $e) {
+            error_log('[BrightFuture] Teacher course delete: ' . $e->getMessage());
+            $reason = ($e->getCode() === '23000')
+                ? 'Khóa học vẫn còn dữ liệu liên quan trong database. Hệ thống đã chặn xóa để bảo vệ bài nộp, câu hỏi và tiến độ học tập.'
+                : 'Không thể xóa khóa học do lỗi truy vấn. Vui lòng kiểm tra nhật ký PHP.';
+            tc_flash('error', $reason);
+        }
         tc_back();
     }
     if ($action === 'toggle') {
@@ -221,6 +249,31 @@ $avatar = function_exists('mb_substr') ? mb_substr($user['full_name'], 0, 1, 'UT
 @media(max-width:1200px){.cards{grid-template-columns:repeat(2,minmax(0,1fr))}}@media(max-width:900px){.sidebar{transform:translateX(-100%)}.sidebar.open{transform:translateX(0)}.overlay.show{display:block;position:fixed;inset:0;background:#0f172a70;z-index:19}.main{margin-left:0}.mobile-menu{display:inline-block}.topbar{height:70px;padding:0 22px}.content{padding:26px 22px}}@media(max-width:650px){.stats,.cards,.fields{grid-template-columns:1fr}.field.full{grid-column:auto}.content{padding:20px 15px 40px}.heading{align-items:flex-start;flex-direction:column}.heading h1{font-size:25px}.topbar .right{display:none}.filter{flex-direction:column}.filter input,.filter select{width:100%}}
 </style>
 <link rel="stylesheet" href="<?= e(app_url('css/bf-legacy-fixes.css')) ?>">
+
+<link rel="stylesheet" href="<?= e(app_url('css/bf-ux-refresh.css')) ?>">
+<style id="bf-course-thumbnail-fix">
+/* Giữ trọn chữ được thiết kế sẵn trong ảnh bìa khóa học (4:3). */
+.cards .course .thumb {
+    height: auto;
+    aspect-ratio: 4 / 3;
+    overflow: hidden;
+    background: #eae7ff;
+    font-size: clamp(24px, 3vw, 36px);
+}
+.cards .course .thumb img {
+    display: block;
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+    object-position: center;
+}
+.cards .course .course-body { min-width: 0; }
+.cards .course h3 { overflow-wrap: anywhere; }
+.cards .course .desc { overflow-wrap: anywhere; }
+@media (max-width: 650px) {
+    .cards .course .thumb { aspect-ratio: 4 / 3; }
+}
+</style>
 </head>
 <body>
 <div class="layout">
@@ -275,7 +328,7 @@ $avatar = function_exists('mb_substr') ? mb_substr($user['full_name'], 0, 1, 'UT
 <a class="button" href="<?= e(app_url('teacher/lessons.php?course_id='.$courseId)) ?>">Bài giảng</a>
 <?php if($course['level']!=='beginner'): ?><a class="button" href="<?= e(app_url('teacher/learning-paths.php?course_id='.$courseId)) ?>">Điều kiện mở khóa</a><?php endif; ?>
 <form method="POST" action="<?= e(tc_query_url()) ?>"><?= csrf_field() ?><input type="hidden" name="action" value="toggle"><input type="hidden" name="course_id" value="<?= $courseId ?>"><button class="button" type="submit"><?= $course['status']==='published'?'Ẩn khóa học':'Công khai' ?></button></form>
-<form method="POST" action="<?= e(tc_query_url()) ?>" onsubmit="return confirm('Xóa vĩnh viễn khóa học này cùng chương, bài giảng, bài tập, bài nộp và dữ liệu đăng ký? Thao tác không thể hoàn tác.');"><?= csrf_field() ?><input type="hidden" name="action" value="delete"><input type="hidden" name="course_id" value="<?= $courseId ?>"><button type="submit" class="button danger">Xóa</button></form></div></div></article>
+<?php if ($course['status'] === 'draft'): ?><form method="POST" action="<?= e(tc_query_url()) ?>" onsubmit="return confirm('Chỉ xóa khóa học bản nháp chưa có chương và học viên. Nếu còn dữ liệu liên quan, hệ thống sẽ từ chối xóa. Tiếp tục?');"><?= csrf_field() ?><input type="hidden" name="action" value="delete"><input type="hidden" name="course_id" value="<?= $courseId ?>"><button type="submit" class="button danger">Xóa bản nháp</button></form><?php endif; ?></div></div></article>
 <?php endforeach; ?>
 </section>
 <?php if ($pagination['total_pages'] > 1): ?>
@@ -297,4 +350,6 @@ window.addEventListener('resize',()=>{if(window.innerWidth>900)toggleMenu(false)
 </script>
 <script>window.BF_LEGACY={role:'teacher',base:<?= json_encode(rtrim(BASE_URL, '/')) ?>};</script>
 <script src="<?= e(app_url('js/bf-legacy-fixes.js')) ?>" defer></script>
+
+<script src="<?= e(app_url('js/bf-ux-refresh.js')) ?>" defer></script>
 </body></html>

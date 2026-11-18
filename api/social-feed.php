@@ -11,6 +11,6 @@ try{
   if(!bf_social_group_member($pdo,$id,$uid)){http_response_code(403);echo json_encode(['ok'=>false]);exit;}
   $s=$pdo->prepare('SELECT m.id,m.sender_id,u.full_name sender,m.body,m.created_at FROM bf_group_messages m JOIN users u ON u.id=m.sender_id WHERE m.group_id=? ORDER BY m.id DESC LIMIT 100');$s->execute([$id]);
  }
- $msgs=array_reverse($s->fetchAll());foreach($msgs as &$m){$m['mine']=(int)$m['sender_id']===$uid;unset($m['sender_id']);}unset($m);
+ $msgs=array_reverse($s->fetchAll());usort($msgs,static function($a,$b){return strcmp((string)$a['created_at'],(string)$b['created_at']) ?: ((int)$a['id'] <=>(int)$b['id']);});foreach($msgs as &$m){$m['mine']=(int)$m['sender_id']===$uid;unset($m['sender_id']);}unset($m);
  echo json_encode(['ok'=>true,'messages'=>$msgs],JSON_UNESCAPED_UNICODE|JSON_INVALID_UTF8_SUBSTITUTE);
 }catch(Throwable $e){error_log('[social-feed] '.$e->getMessage());http_response_code(500);echo json_encode(['ok'=>false]);}

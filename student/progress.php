@@ -170,6 +170,8 @@ $avatarLetter = function_exists('mb_substr') ? mb_substr($avatarName, 0, 1, 'UTF
 @media(max-width:1200px){.stats{grid-template-columns:repeat(2,minmax(0,1fr))}}@media(max-width:900px){.sidebar{transform:translateX(-100%)}.sidebar.open{transform:translateX(0)}.main{margin-left:0}.menu-toggle{display:block}.overlay.show{display:block;position:fixed;inset:0;background:rgba(15,23,42,.45);z-index:30}.topbar{height:70px;padding:0 22px}.content{padding:25px 22px 45px}}@media(max-width:650px){.stats,.course-grid{grid-template-columns:1fr}.content{padding:20px 15px 40px}.topbar{padding:0 15px}.topbar-right .full-name{display:none}.heading h1{font-size:25px}.filter{width:100%;align-items:stretch;flex-direction:column}.filter select{max-width:none;width:100%}.chart-row{grid-template-columns:minmax(90px,1fr) minmax(80px,1fr) 45px;gap:8px}.panel{padding:17px}.stat{padding:19px}}
 </style>
 <link rel="stylesheet" href="<?= e(app_url('css/bf-legacy-fixes.css')) ?>">
+
+<link rel="stylesheet" href="<?= e(app_url('css/bf-ux-refresh.css')) ?>">
 </head>
 <body>
 <div class="layout">
@@ -267,5 +269,7 @@ $avatarLetter = function_exists('mb_substr') ? mb_substr($avatarName, 0, 1, 'UTF
 </script>
 <script>window.BF_LEGACY={role:'student',base:<?= json_encode(rtrim(BASE_URL, '/')) ?>};</script>
 <script src="<?= e(app_url('js/bf-legacy-fixes.js')) ?>" defer></script>
+
+<script src="<?= e(app_url('js/bf-ux-refresh.js')) ?>" defer></script>
 </body>
 </html>

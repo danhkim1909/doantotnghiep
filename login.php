@@ -1,19 +1,6 @@
-
 <?php
-/**
- * ==================================================
- * BRIGHTFUTURE - LOGIN PAGE
- * File: login.php
- * PHP 8.0+ / MySQL PDO / PHP Session
- * ==================================================
- */
-
-
 require_once __DIR__ . '/includes/permissions.php';
 
-// ================================================
-// 1. CHAN NGUOI DA DANG NHAP
-// ================================================
 
 require_guest();
 
@@ -128,11 +115,14 @@ if (is_post()) {
     } else {
 
         try {
+            // Ghi nhan giai doan de khoanh vung loi tren hosting.
+            $loginStage = 'kiem_tra_thong_tin_dang_nhap';
 
             // attempt_login() kiem tra password_verify,
             // tao Session va regenerate Session ID.
             if (attempt_login($email, $password)) {
 
+                $loginStage = 'tao_session_hoac_chuyen_dashboard';
                 // Chuyen den dashboard dung vai tro
                 redirect_to_dashboard();
             }
@@ -156,14 +146,21 @@ if (is_post()) {
 
         } catch (Throwable $exception) {
 
-            error_log(
-                '[BrightFuture Login] ' .
-                $exception->getMessage()
-            );
+            // Ma tham chieu chi de tim log, khong chua email/mat khau.
+            $loginErrorId = bin2hex(random_bytes(4));
+            error_log(sprintf(
+                '[BrightFuture Login][%s][stage=%s][%s] %s (%s:%d)',
+                $loginErrorId,
+                $loginStage ?? 'chua_xac_dinh',
+                get_class($exception),
+                $exception->getMessage(),
+                $exception->getFile(),
+                $exception->getLine()
+            ));
 
             $error =
                 'Hệ thống đang gặp sự cố. ' .
-                'Vui lòng thử lại sau.';
+                'Vui lòng thử lại sau. Mã lỗi: ' . $loginErrorId;
         }
     }
 }

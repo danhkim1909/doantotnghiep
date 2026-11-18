@@ -1226,6 +1226,26 @@ $pageTitle = 'Khóa học của tôi | ' . APP_NAME;
         }
     </style>
 <link rel="stylesheet" href="<?= e(app_url('css/bf-legacy-fixes.css')) ?>">
+
+<link rel="stylesheet" href="<?= e(app_url('css/bf-ux-refresh.css')) ?>">
+<style id="bf-course-thumbnail-fix">
+/* Ảnh bìa có chữ: tránh object-fit: cover làm mất chữ ở mép ảnh. */
+.course-card .course-image {
+    height: auto;
+    aspect-ratio: 4 / 3;
+    overflow: hidden;
+    background: #eae7ff;
+}
+.course-card .course-image img {
+    display: block;
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+    object-position: center;
+}
+.course-card { min-width: 0; }
+.course-card :is(h2,h3,p) { overflow-wrap: anywhere; }
+</style>
 </head>
 
 <body>
@@ -2092,5 +2112,7 @@ document.addEventListener('DOMContentLoaded', function () {
 
 <script>window.BF_LEGACY={role:'student',base:<?= json_encode(rtrim(BASE_URL, '/')) ?>};</script>
 <script src="<?= e(app_url('js/bf-legacy-fixes.js')) ?>" defer></script>
+
+<script src="<?= e(app_url('js/bf-ux-refresh.js')) ?>" defer></script>
 </body>
 </html>

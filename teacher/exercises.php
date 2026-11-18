@@ -233,6 +233,8 @@ $flash=get_flash();
 .quiz-actions{align-items:center}.quiz-actions .note{margin:0}
 @media(max-width:650px){.q-settings{grid-template-columns:1fr}.option-row{gap:6px;padding:7px}.option-row .o-remove{padding:6px}}
 </style><link rel="stylesheet" href="<?= e(app_url('css/bf-legacy-fixes.css')) ?>">
+
+<link rel="stylesheet" href="<?= e(app_url('css/bf-ux-refresh.css')) ?>">
 </head><body>
 <div id="overlay" class="overlay"></div><aside class="sidebar" id="sidebar"><a class="logo" href="<?=te_h(app_url())?>"><span class="logo-mark">&lt;/&gt;</span>BrightFuture</a><nav class="nav"><a href="<?=te_h(app_url('teacher/dashboard.php'))?>">▣ Tổng quan</a><a href="<?=te_h(app_url('teacher/courses.php'))?>">▤ Khóa học</a><a href="<?=te_h(app_url('teacher/courses.php'))?>">▥ Chương & bài giảng</a><a class="active" href="<?=te_h(app_url('teacher/exercises.php'))?>">☑ Quản lý bài tập</a><a href="<?=te_h(app_url('teacher/submissions.php'))?>">✎ Chấm bài</a><a href="<?=te_h(app_url('profile.php'))?>">◯ Hồ sơ</a></nav><div class="sidefoot"><strong><?=te_h($user['full_name'])?></strong><small>Giáo viên</small><form action="<?=te_h(app_url('logout.php'))?>" method="post"><?=csrf_field()?><button class="logout">Đăng xuất</button></form></div></aside>
 <div class="main"><header class="top"><div><button class="mobile-toggle" id="mobileMenu" type="button" aria-label="Mở menu">☰</button> Không gian giảng dạy</div><strong><?=te_h($user['full_name'])?></strong></header><main class="container"><div class="crumb"><a href="<?=te_h(app_url('teacher/dashboard.php'))?>">Tổng quan</a> / Bài tập</div><div class="heading"><div><h1>Quản lý bài tập</h1><p>Tạo bài thực hành, trắc nghiệm và quản lý hạn nộp.</p></div><a class="btn" href="<?=te_h(app_url('teacher/exercises.php?create=1'.($courseId?'&course_id='.$courseId:'')))?>">+ Tạo bài tập</a></div>
@@ -323,4 +325,6 @@ if(quizType){
 }
 </script><script>window.BF_LEGACY={role:'teacher',base:<?= json_encode(rtrim(BASE_URL, '/')) ?>};</script>
 <script src="<?= e(app_url('js/bf-legacy-fixes.js')) ?>" defer></script>
+
+<script src="<?= e(app_url('js/bf-ux-refresh.js')) ?>" defer></script>
 </body></html>

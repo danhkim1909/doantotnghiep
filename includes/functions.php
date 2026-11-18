@@ -1,4 +1,3 @@
-
 <?php
 if (!function_exists('bf_array_is_list')) { function bf_array_is_list(array $a): bool { $i=0; foreach ($a as $k=>$_) { if ($k !== $i++) return false; } return true; } }
 

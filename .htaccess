@@ -1,0 +1,4 @@
+# Protect sensitive local configuration; API key must never be served by Apache.
+<FilesMatch "^\.env(\..*)?$">
+    Require all denied
+</FilesMatch>

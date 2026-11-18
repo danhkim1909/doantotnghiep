@@ -874,16 +874,15 @@ $firstName = trim(
             box-shadow: 0 12px 28px rgba(15,23,42,.07);
         }
 
+        /* Thumbnail 4:3: display full designed cover including its bottom text. */
         .course-thumbnail {
-            height: 145px;
+            width: 100%;
+            height: auto;
+            aspect-ratio: 4 / 3;
             display: flex;
             align-items: center;
             justify-content: center;
-            background: linear-gradient(
-                135deg,
-                #e0e7ff,
-                #ddd6fe
-            );
+            background: #e8e7ff;
             color: var(--primary);
             font-size: 44px;
             font-weight: 800;
@@ -891,9 +890,11 @@ $firstName = trim(
         }
 
         .course-thumbnail img {
+            display: block;
             width: 100%;
             height: 100%;
-            object-fit: cover;
+            object-fit: contain;
+            object-position: center;
         }
 
         .course-body {
@@ -1259,6 +1260,8 @@ $firstName = trim(
         }
     </style>
 <link rel="stylesheet" href="<?= e(app_url('css/bf-legacy-fixes.css')) ?>">
+
+<link rel="stylesheet" href="<?= e(app_url('css/bf-ux-refresh.css')) ?>">
 </head>
 
 <body>
@@ -2080,5 +2083,7 @@ document.addEventListener('DOMContentLoaded', function () {
 
 <script>window.BF_LEGACY={role:'student',base:<?= json_encode(rtrim(BASE_URL, '/')) ?>};</script>
 <script src="<?= e(app_url('js/bf-legacy-fixes.js')) ?>" defer></script>
+
+<script src="<?= e(app_url('js/bf-ux-refresh.js')) ?>" defer></script>
 </body>
 </html>

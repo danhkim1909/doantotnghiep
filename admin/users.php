@@ -175,6 +175,8 @@ $initial = function_exists('mb_substr') ? mb_substr($name, 0, 1, 'UTF-8') : subs
 @media(max-width:1000px){.sidebar{transform:translateX(-100%);transition:transform .25s}.sidebar.open{transform:translateX(0)}.overlay.show{display:block;position:fixed;inset:0;background:#0006;z-index:15}.main{margin-left:0}.hamburger{display:block}.container{padding:23px}.topbar{padding:0 23px}}@media(max-width:600px){.stats{grid-template-columns:1fr}.container{padding:17px}.filter{flex-direction:column}.filter input{min-width:0;width:100%}.filter select,.filter .btn{width:100%}h1{font-size:25px}.topbar{padding:0 17px}}
 </style>
 <link rel="stylesheet" href="<?= e(app_url('css/bf-legacy-fixes.css')) ?>">
+
+<link rel="stylesheet" href="<?= e(app_url('css/bf-ux-refresh.css')) ?>">
 </head>
 <body>
 <div class="overlay" id="overlay"></div>
@@ -255,4 +257,6 @@ $initial = function_exists('mb_substr') ? mb_substr($name, 0, 1, 'UTF-8') : subs
 </script>
 <script>window.BF_LEGACY={role:'admin',base:<?= json_encode(rtrim(BASE_URL, '/')) ?>};</script>
 <script src="<?= e(app_url('js/bf-legacy-fixes.js')) ?>" defer></script>
+
+<script src="<?= e(app_url('js/bf-ux-refresh.js')) ?>" defer></script>
 </body></html>
