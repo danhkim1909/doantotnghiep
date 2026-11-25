@@ -1,0 +1,140 @@
+/* BrightFuture - Admin Content Moderation Styles */
+
+.mod-content {
+    max-width: 1500px;
+    margin: 0 auto;
+    padding: 34px 36px 60px;
+}
+
+.mod-crumb {
+    font-size: 13px;
+    color: var(--bf-sub, #64748b);
+    margin-bottom: 20px;
+}
+
+.mod-crumb a {
+    color: var(--bf-primary, #4f46e5);
+}
+
+.mod-crumb a:hover {
+    text-decoration: underline;
+}
+
+.mod-heading {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 16px;
+    margin-bottom: 24px;
+    flex-wrap: wrap;
+}
+
+.mod-heading h1 {
+    margin: 0 0 6px;
+    font-size: 28px;
+    color: var(--bf-txt, #172033);
+    letter-spacing: -0.02em;
+}
+
+.mod-heading p {
+    margin: 0;
+    color: var(--bf-sub, #64748b);
+    font-size: 14px;
+}
+
+.mod-card {
+    background: #ffffff;
+    border: 1px solid var(--bf-line, #e2e8f0);
+    border-radius: var(--bf-radius-lg, 16px);
+    padding: 24px;
+    margin-bottom: 24px;
+    box-shadow: var(--bf-shadow, 0 10px 28px rgba(23, 32, 51, 0.045));
+}
+
+.mod-card h2 {
+    margin: 0 0 16px;
+    font-size: 18px;
+    color: var(--bf-txt, #172033);
+}
+
+.mod-item {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 20px;
+    padding: 18px 0;
+    border-bottom: 1px solid var(--bf-line, #e2e8f0);
+}
+
+.mod-item:last-child {
+    border-bottom: 0;
+}
+
+.mod-reason {
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    margin: 10px 0;
+    color: var(--bf-txt, #172033);
+    line-height: 1.6;
+    background: #f8faff;
+    padding: 12px 14px;
+    border-radius: 10px;
+    border: 1px solid #e0e7ff;
+    font-size: 14px;
+}
+
+.mod-meta {
+    font-size: 12px;
+    color: var(--bf-sub, #64748b);
+    display: flex;
+    gap: 12px;
+    align-items: center;
+    flex-wrap: wrap;
+}
+
+.mod-form {
+    min-width: 280px;
+    max-width: 380px;
+    flex: 1;
+    background: #fafbfc;
+    border: 1px solid var(--bf-line, #e2e8f0);
+    border-radius: 12px;
+    padding: 14px;
+}
+
+.mod-status-chip {
+    display: inline-block;
+    padding: 3px 9px;
+    border-radius: 99px;
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+}
+
+.mod-status-chip.open {
+    background: #fef2f2;
+    color: #be123c;
+}
+
+.mod-status-chip.resolved {
+    background: #f0fdf4;
+    color: #166534;
+}
+
+.mod-status-chip.dismissed {
+    background: #f1f5f9;
+    color: #64748b;
+}
+
+@media (max-width: 768px) {
+    .mod-item {
+        flex-direction: column;
+    }
+    .mod-form {
+        max-width: 100%;
+        width: 100%;
+    }
+    .mod-content {
+        padding: 20px 16px 40px;
+    }
+}

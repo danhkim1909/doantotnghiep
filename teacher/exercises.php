@@ -2,9 +2,15 @@
 /** BrightFuture | Teacher exercise & quiz management | PHP 8+ */
 
 require_once __DIR__ . '/../includes/permissions.php';
+require_once __DIR__ . '/../includes/portal_ui.php';
+require_once __DIR__ . '/../classes/Models/Exercise.php';
+
+use BrightFuture\Models\Exercise;
+
 $user = require_role(ROLE_TEACHER);
 header('Cache-Control: no-store, private');
 $pdo = db();
+$exerciseModel = new Exercise($pdo);
 $teacherId = (int)$user['id'];
 $errors = [];
 $editing = null;
@@ -17,25 +23,6 @@ function te_cut(string $s, int $n): string { return function_exists('mb_substr')
 function te_redirect(string $message, int $courseId = 0): void {
     set_flash('success', $message);
     redirect('teacher/exercises.php' . ($courseId > 0 ? '?course_id=' . $courseId : ''));
-}
-function te_course(PDO $pdo, int $courseId, int $teacherId): ?array {
-    $s=$pdo->prepare('SELECT id,title,status FROM courses WHERE id=? AND teacher_id=? LIMIT 1');
-    $s->execute([$courseId,$teacherId]); return $s->fetch() ?: null;
-}
-function te_exercise(PDO $pdo,int $id,int $teacherId): ?array {
-    $s=$pdo->prepare('SELECT ex.*,l.title AS lesson_title,l.chapter_id,cc.course_id FROM exercises ex JOIN lessons l ON l.id=ex.lesson_id JOIN course_chapters cc ON cc.id=l.chapter_id JOIN courses c ON c.id=cc.course_id WHERE ex.id=? AND c.teacher_id=? LIMIT 1');
-    $s->execute([$id,$teacherId]); return $s->fetch() ?: null;
-}
-function te_lesson(PDO $pdo,int $lessonId,int $teacherId): ?array {
-    $s=$pdo->prepare('SELECT l.id, l.title,cc.course_id FROM lessons l JOIN course_chapters cc ON cc.id=l.chapter_id JOIN courses c ON c.id=cc.course_id WHERE l.id=? AND c.teacher_id=? LIMIT 1');
-    $s->execute([$lessonId,$teacherId]); return $s->fetch() ?: null;
-}
-function te_questions(PDO $pdo,int $exerciseId): array {
-    $q=$pdo->prepare('SELECT id,question_text,question_type,points,position FROM exercise_questions WHERE exercise_id=? ORDER BY position,id');
-    $q->execute([$exerciseId]); $rows=$q->fetchAll();
-    $opt=$pdo->prepare('SELECT option_text,is_correct FROM question_options WHERE question_id=? ORDER BY position,id');
-    foreach($rows as &$r){$opt->execute([(int)$r['id']]);$r['options']=$opt->fetchAll();}unset($r);
-    return $rows;
 }
 /** PHP 8.0 compatible list check (array_is_list was added in PHP 8.1). */
 function te_array_is_list(array $values): bool {
@@ -81,43 +68,52 @@ $courseId = positive_int($_GET['course_id'] ?? null);
 $presetLessonId = positive_int($_GET['lesson_id'] ?? null);
 $editId = positive_int($_GET['edit'] ?? null);
 if ($presetLessonId && !$editId) {
-    $preset = te_lesson($pdo, $presetLessonId, $teacherId);
+    $preset = $exerciseModel->getTeacherLesson($presetLessonId, $teacherId);
     if ($preset && (!$courseId || $courseId === (int)$preset['course_id'])) {
         $courseId=(int)$preset['course_id'];
         $form['lesson_id']=$presetLessonId;
         $form['exercise_type']='quiz';
-        $form['status']='published';
+        $form['status']='draft';
     }
 }
 if ($editId) {
-    $editing=te_exercise($pdo,$editId,$teacherId);
+    $editing = $exerciseModel->getTeacherExercise($editId, $teacherId);
     if(!$editing){http_response_code(404);exit('Không tìm thấy bài tập hoặc bạn không có quyền.');}
     $courseId=(int)$editing['course_id'];
-    if($editing['exercise_type']==='quiz')$editingQuestions=te_questions($pdo,$editId);
+    if($editing['exercise_type']==='quiz')$editingQuestions = $exerciseModel->getQuestions($editId);
 }
 if (is_post()) {
     require_csrf();
     $action=get_post('action');
     $id=positive_int($_POST['id']??null);
     if(in_array($action,['delete','toggle'],true)) {
-        $existing=te_exercise($pdo,$id,$teacherId);
+        $existing = $exerciseModel->getTeacherExercise($id, $teacherId);
         if(!$existing){http_response_code(403);exit('Bạn không có quyền thao tác bài tập này.');}
         $courseId=(int)$existing['course_id'];
         if($action==='delete') {
             // Delete is blocked when student submissions already exist.
-            $s=$pdo->prepare('SELECT COUNT(*) FROM exercise_submissions WHERE exercise_id=?');$s->execute([$id]);
-            if((int)$s->fetchColumn()>0){$errors[]='Không thể xóa bài tập đã có bài nộp. Hãy chuyển về bản nháp.';}
-            else { $s=$pdo->prepare('DELETE ex FROM exercises ex JOIN lessons l ON l.id=ex.lesson_id JOIN course_chapters cc ON cc.id=l.chapter_id JOIN courses c ON c.id=cc.course_id WHERE ex.id=? AND c.teacher_id=?');$s->execute([$id,$teacherId]);te_redirect('Đã xóa bài tập.',$courseId); }
+            if($exerciseModel->countExerciseSubmissions($id) > 0){
+                $errors[]='Không thể xóa bài tập đã có bài nộp. Hãy chuyển về bản nháp.';
+            } else {
+                $exerciseModel->deleteTeacherExercise($id, $teacherId);
+                te_redirect('Đã xóa bài tập.',$courseId);
+            }
         } else {
-            $newStatus=$existing['status']==='published'?'draft':'published';
-            $s=$pdo->prepare('UPDATE exercises SET status=? WHERE id=?');$s->execute([$newStatus,$id]);
+            if ($existing['status'] === 'draft' && $existing['exercise_type'] === 'quiz') {
+                $qCount = count($exerciseModel->getQuestions($id));
+                if ($qCount < 1) {
+                    set_flash('error', "Không thể công khai: Bài trắc nghiệm cần có ít nhất 1 câu hỏi trước khi mở cho học viên.");
+                    redirect('teacher/exercises.php' . ($courseId > 0 ? '?course_id=' . $courseId : ''));
+                }
+            }
+            $exerciseModel->toggleTeacherExerciseStatus($id, $teacherId);
             te_redirect('Đã cập nhật trạng thái bài tập.',$courseId);
         }
     } elseif ($action==='save') {
-        $old=$id?te_exercise($pdo,$id,$teacherId):null;
+        $old=$id ? $exerciseModel->getTeacherExercise($id, $teacherId) : null;
         if($id&&!$old){http_response_code(403);exit('Bạn không có quyền sửa bài tập này.');}
         $lessonId=positive_int($_POST['lesson_id']??null);
-        $lesson=te_lesson($pdo,$lessonId,$teacherId);
+        $lesson = $exerciseModel->getTeacherLesson($lessonId, $teacherId);
         $title=get_post('title');$description=get_post('description');
         $type=get_post('exercise_type');$lang=get_post('programming_language');
         $starter=isset($_POST['starter_code'])&&is_string($_POST['starter_code'])?$_POST['starter_code']:'';
@@ -143,7 +139,12 @@ if (is_post()) {
             else $deadline=$dt->format('Y-m-d H:i:s');
         }
         $questions=[];$rawQuestions=isset($_POST['questions_json'])&&is_string($_POST['questions_json'])?$_POST['questions_json']:'[]';
-        if($type==='quiz'&&$maxScore!==false&&$maxScore>0)$questions=te_validate_questions($rawQuestions,(float)$maxScore,$errors);
+        if($type==='quiz'&&$maxScore!==false&&$maxScore>0){
+            $questions=te_validate_questions($rawQuestions,(float)$maxScore,$errors);
+            if($status==='published'&&count($questions)<1){
+                $errors[]='Bài trắc nghiệm phải có ít nhất 1 câu hỏi mới được phép Công khai. Nếu chưa soạn câu hỏi, vui lòng lưu ở trạng thái Bản nháp.';
+            }
+        }
         if($old&&$old['exercise_type']==='quiz'){
             $s=$pdo->prepare('SELECT COUNT(*) FROM exercise_submissions WHERE exercise_id=?');$s->execute([$id]);
             if((int)$s->fetchColumn()>0 && ($type!=='quiz'||$rawQuestions!==json_encode(array_map(static fn($q)=>['text'=>$q['question_text'],'type'=>$q['question_type'],'points'=>(float)$q['points'],'options'=>array_map(static fn($o)=>['text'=>$o['option_text'],'correct'=>(bool)$o['is_correct']],$q['options'])],te_questions($pdo,$id)),JSON_UNESCAPED_UNICODE))){
@@ -186,9 +187,9 @@ if (is_post()) {
     }else{$errors[]='Thao tác không hợp lệ.';}
 }
 // Teacher-owned courses & lessons only.
-$s=$pdo->prepare('SELECT id,title FROM courses WHERE teacher_id=? ORDER BY updated_at DESC,id DESC');$s->execute([$teacherId]);$ownedCourses=$s->fetchAll();
-if($courseId && !te_course($pdo,$courseId,$teacherId)){http_response_code(403);exit('Khóa học không thuộc quyền quản lý của bạn.');}
-$s=$pdo->prepare('SELECT l.id,l.title,cc.title AS chapter_title,cc.course_id,c.title AS course_title FROM lessons l JOIN course_chapters cc ON cc.id=l.chapter_id JOIN courses c ON c.id=cc.course_id WHERE c.teacher_id=? ORDER BY c.title,cc.position,l.position,l.id');$s->execute([$teacherId]);$lessons=$s->fetchAll();
+$ownedCourses = $exerciseModel->getTeacherCourses($teacherId);
+if($courseId && !$exerciseModel->getTeacherCourse($courseId, $teacherId)){http_response_code(403);exit('Khóa học không thuộc quyền quản lý của bạn.');}
+$lessons = $exerciseModel->getTeacherLessons($teacherId);
 if($editing && !$form){
     $form=$editing;
     $form['deadline']=$editing['deadline']?date('Y-m-d\TH:i',strtotime($editing['deadline'])):'';
@@ -198,46 +199,32 @@ $search=trim(get_query('q'));$search=te_cut($search,100);
 $status=get_query('status','all');if(!in_array($status,['all','draft','published'],true))$status='all';
 $typeFilter=get_query('type','all');if(!in_array($typeFilter,['all','quiz','coding','text','file_upload'],true))$typeFilter='all';
 $page=positive_int($_GET['page']??null,1);$perPage=10;
-$where=['c.teacher_id=:teacher'];$params=['teacher'=>$teacherId];
-if($courseId){$where[]='c.id=:course';$params['course']=$courseId;}
-if($status!=='all'){$where[]='ex.status=:status';$params['status']=$status;}
-if($typeFilter!=='all'){$where[]='ex.exercise_type=:type';$params['type']=$typeFilter;}
-if($search!==''){$where[]='(ex.title LIKE :search1 OR l.title LIKE :search2)';$params['search1']='%'.$search.'%';$params['search2']='%'.$search.'%';}
-$whereSql=implode(' AND ',$where);
-$from=' FROM exercises ex JOIN lessons l ON l.id=ex.lesson_id JOIN course_chapters cc ON cc.id=l.chapter_id JOIN courses c ON c.id=cc.course_id WHERE '.$whereSql;
-$countStmt=$pdo->prepare('SELECT COUNT(*) '.$from);foreach($params as $key=>$val)$countStmt->bindValue(':'.$key,$val,is_int($val)?PDO::PARAM_INT:PDO::PARAM_STR);$countStmt->execute();$total=(int)$countStmt->fetchColumn();
-$pagination=paginate($total,$page,$perPage);
-$listingSql='SELECT ex.id,ex.title,ex.exercise_type,ex.max_score,ex.max_attempts,ex.deadline,ex.status,ex.position,l.title AS lesson_title,c.id AS course_id,c.title AS course_title,(SELECT COUNT(*) FROM exercise_submissions es WHERE es.exercise_id=ex.id) AS submissions_count '.$from.' ORDER BY ex.updated_at DESC,ex.id DESC LIMIT :lim OFFSET :off';
-$s=$pdo->prepare($listingSql);foreach($params as $key=>$val)$s->bindValue(':'.$key,$val,is_int($val)?PDO::PARAM_INT:PDO::PARAM_STR);$s->bindValue(':lim',$perPage,PDO::PARAM_INT);$s->bindValue(':off',$pagination['offset'],PDO::PARAM_INT);$s->execute();$items=$s->fetchAll();
+
+$filters = [
+    'course_id' => $courseId,
+    'status' => $status,
+    'type' => $typeFilter,
+    'search' => $search
+];
+
+$total = $exerciseModel->countTeacherExercisesFiltered($teacherId, $filters);
+$pagination = paginate($total, $page, $perPage);
+$items = $exerciseModel->getTeacherExercisesFiltered($teacherId, $filters, $perPage, $pagination['offset']);
 function te_list_url(int $page,int $courseId,string $search,string $status,string $type):string{return app_url('teacher/exercises.php?'.http_build_query(['course_id'=>$courseId?:null,'q'=>$search,'status'=>$status,'type'=>$type,'page'=>$page]));}
 $flash=get_flash();
+
+$pageTitle = 'Quản lý bài tập';
+$pageDescription = 'Tạo bài thực hành, trắc nghiệm và quản lý hạn nộp trên BrightFuture';
+$activeMenu = 'exercises';
+$extraCss = ['css/bf-teacher-exercises.css'];
+
+require_once __DIR__ . '/../views/layouts/portal_head.php';
 ?>
-<!DOCTYPE html><html lang="vi"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Quản lý bài tập | BrightFuture</title>
-<style>
-:root{--pri:#4f46e5;--violet:#7c3aed;--bg:#f6f8fc;--text:#172033;--muted:#64748b;--line:#e5eaf3}*{box-sizing:border-box}body{margin:0;font:14px/1.55 'Segoe UI',Arial,sans-serif;background:var(--bg);color:var(--text)}a{text-decoration:none;color:inherit}button,input,select,textarea{font:inherit}button{cursor:pointer}.sidebar{width:250px;background:#fff;border-right:1px solid var(--line);position:fixed;inset:0 auto 0 0;display:flex;flex-direction:column;z-index:10}.logo{display:flex;align-items:center;gap:12px;padding:25px;font-size:21px;font-weight:800;color:var(--pri)}.logo-mark{padding:8px;border-radius:10px;color:white;background:linear-gradient(120deg,var(--pri),var(--violet))}.nav{padding:12px;flex:1;overflow:auto}.nav a{display:block;padding:12px 15px;border-radius:10px;color:var(--muted);margin:3px 0}.nav a:hover,.nav a.active{background:#eef2ff;color:var(--pri);font-weight:700}.sidefoot{padding:15px;border-top:1px solid var(--line)}.sidefoot strong{display:block}.sidefoot small{color:var(--muted)}.logout{width:100%;margin-top:12px;border:0;border-radius:9px;padding:11px;background:#fff1f2;color:#be123c}.main{margin-left:250px}.top{height:73px;background:white;border-bottom:1px solid var(--line);padding:0 30px;display:flex;align-items:center;justify-content:space-between}.container{max-width:1480px;margin:auto;padding:28px 30px 55px}.crumb{font-size:12px;color:var(--muted);margin-bottom:17px}.heading{display:flex;align-items:center;justify-content:space-between;gap:14px;margin-bottom:24px}.heading h1{font-size:29px;margin:0}.heading p{color:var(--muted);margin:4px 0}.btn{display:inline-flex;align-items:center;justify-content:center;gap:7px;border:0;background:var(--pri);color:white;border-radius:9px;padding:11px 16px;font-weight:700}.btn:hover{background:#4338ca}.btn.light{color:var(--pri);background:#eef2ff}.btn.danger{color:#be123c;background:#fff1f2}.btn.sm{padding:7px 11px;font-size:12px}.panel{border:1px solid var(--line);border-radius:16px;background:white;padding:22px;margin-bottom:22px;box-shadow:0 3px 15px #17203304}.panel h2{font-size:19px;margin:0 0 17px}.filters{display:grid;grid-template-columns:1.7fr 1fr 1fr 1fr auto;gap:10px;align-items:end}.field{display:flex;flex-direction:column;gap:6px;min-width:0}.field label{font-size:12px;font-weight:700}.input{width:100%;border:1px solid #d8dfeb;background:white;border-radius:9px;padding:10px 12px;color:var(--text);outline:none;min-height:43px}.input:focus{border-color:var(--pri);box-shadow:0 0 0 3px #4f46e519}textarea.input{min-height:100px;resize:vertical}.grid2{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}.grid3{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px}.tablewrap{overflow:auto}.table{width:100%;border-collapse:collapse;text-align:left;min-width:820px}.table th{padding:13px;border-bottom:1px solid var(--line);color:var(--muted);font-size:12px;font-weight:700}.table td{padding:14px 13px;border-bottom:1px solid var(--line);vertical-align:middle}.table td strong{display:block}.table small{color:var(--muted)}.badge{display:inline-block;padding:5px 9px;border-radius:30px;font-size:11px;font-weight:700;background:#eff6ff;color:#1d4ed8}.badge.draft{background:#f1f5f9;color:#475569}.actions{display:flex;flex-wrap:wrap;gap:6px}.inline{display:inline}.alert{padding:14px 16px;border-radius:10px;margin-bottom:18px;background:#fef2f2;border:1px solid #fecaca;color:#991b1b}.alert.success{background:#f0fdf4;border-color:#bbf7d0;color:#166534}.muted{color:var(--muted)}.quiz-question{border:1px solid var(--line);border-radius:12px;padding:15px;margin:14px 0;background:#fbfcff}.quiz-head{display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:12px}.quiz-options{display:grid;gap:8px}.option-row{display:flex;align-items:center;gap:9px}.option-row input[type=text]{flex:1;min-width:0}.option-row input[type=checkbox]{width:18px;height:18px;accent-color:var(--pri)}.quiz-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}.note{font-size:12px;color:var(--muted);margin:7px 0}.pagination{display:flex;gap:6px;justify-content:center;flex-wrap:wrap;margin-top:18px}.pagination a,.pagination span{padding:8px 12px;background:white;border:1px solid var(--line);border-radius:8px}.pagination .active{background:var(--pri);color:white}.empty{text-align:center;padding:40px 15px;color:var(--muted)}.mobile-toggle{display:none}.overlay{display:none}@media(max-width:1150px){.filters{grid-template-columns:repeat(2,minmax(0,1fr))}}@media(max-width:850px){.sidebar{transform:translateX(-100%);transition:transform .2s}.sidebar.open{transform:translateX(0)}.overlay.open{display:block;position:fixed;inset:0;background:#0f172a66;z-index:9}.main{margin-left:0}.mobile-toggle{display:inline-block;border:0;background:transparent;font-size:24px}.container{padding:20px 16px}.top{padding:0 16px}.heading{align-items:start;flex-direction:column}}@media(max-width:570px){.filters,.grid2,.grid3{grid-template-columns:1fr}.panel{padding:16px}.heading h1{font-size:23px}.option-row{flex-wrap:wrap}}
-
-/* Form soạn đề rõ ràng: một câu hỏi / một thẻ */
-.quiz-question{background:#fff;border:1px solid #dce3f0;border-left:4px solid #6558ed;border-radius:14px;padding:20px;margin:15px 0;box-shadow:0 3px 12px #171f3309}
-.quiz-head{padding-bottom:12px;border-bottom:1px solid #eef1f7;margin-bottom:16px}
-.quiz-head>div{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
-.q-number{color:#4f46e5;font-weight:800;font-size:15px}.q-hint{font-size:12px;color:#64748b}
-.quiz-count{font-size:12px;color:#4f46e5;font-weight:700;background:#eef2ff;padding:5px 10px;border-radius:20px;vertical-align:middle;margin-left:8px}
-.req{color:#dc2626}.q-settings{display:grid;grid-template-columns:2fr 1fr;gap:12px;margin:12px 0 17px}
-.q-answer-heading{font-size:13px;font-weight:800;margin-bottom:9px}.q-answer-heading .muted{font-weight:400;font-size:12px}
-.quiz-options{display:flex;flex-direction:column;gap:9px}
-.option-row{background:#fafbff;border:1px solid #e3e8f3;border-radius:10px;padding:8px 9px;display:flex;align-items:center;gap:10px}
-.option-row:has(.o-correct:checked){border-color:#818cf8;background:#f3f3ff}
-.option-row .o-correct{width:19px;height:19px;flex-shrink:0;accent-color:#4f46e5;cursor:pointer}
-.o-letter{display:grid;place-items:center;width:26px;height:26px;flex-shrink:0;background:#e9edf7;color:#35415b;border-radius:7px;font-weight:800}
-.option-row .o-text{flex:1;min-width:100px}.option-row .o-remove{flex-shrink:0}
-.quiz-actions{align-items:center}.quiz-actions .note{margin:0}
-@media(max-width:650px){.q-settings{grid-template-columns:1fr}.option-row{gap:6px;padding:7px}.option-row .o-remove{padding:6px}}
-</style><link rel="stylesheet" href="<?= e(app_url('css/bf-legacy-fixes.css')) ?>">
-
-<link rel="stylesheet" href="<?= e(app_url('css/bf-ux-refresh.css')) ?>">
-</head><body>
-<div id="overlay" class="overlay"></div><aside class="sidebar" id="sidebar"><a class="logo" href="<?=te_h(app_url())?>"><span class="logo-mark">&lt;/&gt;</span>BrightFuture</a><nav class="nav"><a href="<?=te_h(app_url('teacher/dashboard.php'))?>">▣ Tổng quan</a><a href="<?=te_h(app_url('teacher/courses.php'))?>">▤ Khóa học</a><a href="<?=te_h(app_url('teacher/courses.php'))?>">▥ Chương & bài giảng</a><a class="active" href="<?=te_h(app_url('teacher/exercises.php'))?>">☑ Quản lý bài tập</a><a href="<?=te_h(app_url('teacher/submissions.php'))?>">✎ Chấm bài</a><a href="<?=te_h(app_url('profile.php'))?>">◯ Hồ sơ</a></nav><div class="sidefoot"><strong><?=te_h($user['full_name'])?></strong><small>Giáo viên</small><form action="<?=te_h(app_url('logout.php'))?>" method="post"><?=csrf_field()?><button class="logout">Đăng xuất</button></form></div></aside>
-<div class="main"><header class="top"><div><button class="mobile-toggle" id="mobileMenu" type="button" aria-label="Mở menu">☰</button> Không gian giảng dạy</div><strong><?=te_h($user['full_name'])?></strong></header><main class="container"><div class="crumb"><a href="<?=te_h(app_url('teacher/dashboard.php'))?>">Tổng quan</a> / Bài tập</div><div class="heading"><div><h1>Quản lý bài tập</h1><p>Tạo bài thực hành, trắc nghiệm và quản lý hạn nộp.</p></div><a class="btn" href="<?=te_h(app_url('teacher/exercises.php?create=1'.($courseId?'&course_id='.$courseId:'')))?>">+ Tạo bài tập</a></div>
+<?= bf_unified_sidebar($user, 'exercises') ?>
+<?php require_once __DIR__ . '/../views/layouts/portal_topbar.php'; ?>
+<main class="content container te-content">
+<div class="crumb"><a href="<?=te_h(app_url('teacher/dashboard.php'))?>">Tổng quan</a> / Bài tập</div>
+<div class="heading"><div><h1>Quản lý bài tập</h1><p>Tạo bài thực hành, trắc nghiệm và quản lý hạn nộp.</p></div><a class="btn" href="<?=te_h(app_url('teacher/exercises.php?create=1'.($courseId?'&course_id='.$courseId:'')))?>">+ Tạo bài tập</a></div>
 <?php if($flash):?><div class="alert <?=($flash['type']??'')==='success'?'success':''?>" role="status"><?=te_h((string)($flash['message']??''))?></div><?php endif;?>
 <?php if($errors):?><div class="alert" role="alert"><strong>Vui lòng kiểm tra:</strong><ul><?php foreach($errors as $err):?><li><?=te_h($err)?></li><?php endforeach;?></ul></div><?php endif;?>
 <?php if($editing||isset($_GET['create'])||($form&&!empty($errors))):?>
@@ -255,10 +242,8 @@ $flash=get_flash();
 <section class="panel"><h2>Tìm kiếm & bộ lọc</h2><form method="get" class="filters" action="<?=te_h(app_url('teacher/exercises.php'))?>"><div class="field"><label for="q">Từ khóa</label><input class="input" type="search" name="q" id="q" maxlength="100" placeholder="Tên bài tập hoặc bài giảng..." value="<?=te_h($search)?>"></div><div class="field"><label for="courseFilter">Khóa học</label><select class="input" name="course_id" id="courseFilter"><option value="0">Tất cả khóa học</option><?php foreach($ownedCourses as $c):?><option value="<?=(int)$c['id']?>" <?=$courseId===(int)$c['id']?'selected':''?>><?=te_h($c['title'])?></option><?php endforeach;?></select></div><div class="field"><label for="statusFilter">Trạng thái</label><select class="input" id="statusFilter" name="status"><option value="all">Tất cả</option><option value="draft" <?=$status==='draft'?'selected':''?>>Bản nháp</option><option value="published" <?=$status==='published'?'selected':''?>>Công khai</option></select></div><div class="field"><label for="typeFilter">Loại bài tập</label><select class="input" id="typeFilter" name="type"><option value="all">Tất cả</option><?php foreach(['quiz'=>'Trắc nghiệm','coding'=>'Lập trình','text'=>'Văn bản','file_upload'=>'Nộp file'] as $v=>$label):?><option value="<?=$v?>" <?=$typeFilter===$v?'selected':''?>><?=te_h($label)?></option><?php endforeach;?></select></div><button type="submit" class="btn">Lọc</button></form></section>
 <section class="panel"><h2>Danh sách bài tập <span class="muted">(<?=format_number($total)?>)</span></h2><div class="tablewrap"><table class="table"><thead><tr><th>Bài tập</th><th>Khóa học / bài giảng</th><th>Loại / điểm</th><th>Hạn nộp</th><th>Trạng thái</th><th>Bài nộp</th><th>Thao tác</th></tr></thead><tbody><?php foreach($items as $item):?><tr><td><strong><?=te_h($item['title'])?></strong><small>Thứ tự #<?=(int)$item['position']?></small></td><td><?=te_h($item['course_title'])?><br><small><?=te_h($item['lesson_title'])?></small></td><td><?=te_h(['quiz'=>'Trắc nghiệm','coding'=>'Coding','text'=>'Văn bản','file_upload'=>'Nộp file'][$item['exercise_type']]??$item['exercise_type'])?><br><small><?=te_h((string)$item['max_score'])?> điểm</small></td><td><?=te_h($item['deadline']?format_datetime($item['deadline']):'Không giới hạn')?></td><td><span class="badge <?=$item['status']==='draft'?'draft':''?>"><?=$item['status']==='published'?'Công khai':'Bản nháp'?></span></td><td><?=(int)$item['submissions_count']?></td><td><div class="actions"><a class="btn light sm" href="<?=te_h(app_url('teacher/exercises.php?edit='.(int)$item['id']))?>">Sửa</a><form class="inline" method="post"><?=csrf_field()?><input type="hidden" name="action" value="toggle"><input type="hidden" name="id" value="<?=(int)$item['id']?>"><button class="btn light sm" type="submit"><?=$item['status']==='published'?'Ẩn':'Công khai'?></button></form><form class="inline" method="post" onsubmit="return confirm('Xóa bài tập này? Chỉ có thể xóa bài chưa có bài nộp.');"><?=csrf_field()?><input type="hidden" name="action" value="delete"><input type="hidden" name="id" value="<?=(int)$item['id']?>"><button type="submit" class="btn danger sm">Xóa</button></form></div></td></tr><?php endforeach;?><?php if(!$items):?><tr><td colspan="7" class="empty">Chưa có bài tập phù hợp. Hãy chọn “Tạo bài tập”.</td></tr><?php endif;?></tbody></table></div>
 <?php if($pagination['total_pages']>1):?><nav class="pagination" aria-label="Phân trang"><?php for($i=max(1,$pagination['current_page']-2);$i<=min($pagination['total_pages'],$pagination['current_page']+2);$i++):?><a class="<?=$i===$pagination['current_page']?'active':''?>" href="<?=te_h(te_list_url($i,$courseId,$search,$status,$typeFilter))?>"><?=$i?></a><?php endfor;?></nav><?php endif;?></section>
-</main></div>
+</main>
 <script>
-const mobileMenu=document.getElementById('mobileMenu'),sidebar=document.getElementById('sidebar'),overlay=document.getElementById('overlay');
-if(mobileMenu){mobileMenu.addEventListener('click',()=>{sidebar.classList.toggle('open');overlay.classList.toggle('open')});overlay.addEventListener('click',()=>{sidebar.classList.remove('open');overlay.classList.remove('open')})}
 const quizType=document.getElementById('exerciseType');
 if(quizType){
  const quizArea=document.getElementById('quizFields'),codingArea=document.getElementById('codingFields'),list=document.getElementById('quizContainer'),form=document.getElementById('exerciseForm');
@@ -323,8 +308,5 @@ if(quizType){
    }else document.getElementById('questionsJson').value='[]';
  });
 }
-</script><script>window.BF_LEGACY={role:'teacher',base:<?= json_encode(rtrim(BASE_URL, '/')) ?>};</script>
-<script src="<?= e(app_url('js/bf-legacy-fixes.js')) ?>" defer></script>
-
-<script src="<?= e(app_url('js/bf-ux-refresh.js')) ?>" defer></script>
-</body></html>
+</script>
+<?php require_once __DIR__ . '/../views/layouts/portal_foot.php'; ?>

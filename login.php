@@ -1,5 +1,7 @@
 <?php
 require_once __DIR__ . '/includes/permissions.php';
+require_once __DIR__ . '/includes/login_rate_limit.php';
+require_once __DIR__ . '/includes/icons.php';
 
 
 require_guest();
@@ -117,31 +119,76 @@ if (is_post()) {
         try {
             // Ghi nhan giai doan de khoanh vung loi tren hosting.
             $loginStage = 'kiem_tra_thong_tin_dang_nhap';
-
-            // attempt_login() kiem tra password_verify,
-            // tao Session va regenerate Session ID.
-            if (attempt_login($email, $password)) {
-
-                $loginStage = 'tao_session_hoac_chuyen_dashboard';
-                // Chuyen den dashboard dung vai tro
-                redirect_to_dashboard();
-            }
-
-            $security['attempts']++;
+            $distributedAttempts = bf_login_attempt_count($email, LOGIN_LOCK_SECONDS);
 
             if (
-                $security['attempts']
-                >= LOGIN_MAX_ATTEMPTS
+                $distributedAttempts['ip'] >= LOGIN_MAX_ATTEMPTS
+                || $distributedAttempts['email'] >= LOGIN_MAX_ATTEMPTS
             ) {
-                $security['locked_until'] =
-                    time() + LOGIN_LOCK_SECONDS;
-
                 $error =
                     'Bạn đã thử đăng nhập quá nhiều lần. ' .
                     'Vui lòng thử lại sau 15 phút.';
             } else {
-                $error =
-                    'Email hoặc mật khẩu không chính xác.';
+
+                // attempt_login() kiem tra password_verify,
+                // tao Session va regenerate Session ID.
+                if (attempt_login($email, $password)) {
+                $loginStage = 'kiem_tra_xac_thuc_hai_buoc';
+                $loggedIn = current_user();
+                bf_login_record_attempt($email, true);
+                if ($loggedIn) {
+                    bf_audit_log(
+                        bf_totp_is_enabled((int) $loggedIn['id'])
+                            ? 'login.success_2fa_pending'
+                            : 'login.success',
+                        'user',
+                        (int) $loggedIn['id']
+                    );
+                }
+
+                if ($loggedIn && bf_totp_is_enabled((int) $loggedIn['id'])) {
+                    $_SESSION['2fa_pending_user_id'] = (int) $loggedIn['id'];
+                    $_SESSION['2fa_pending_role'] = (string) $loggedIn['role'];
+                    unset($_SESSION['auth_user_id']);
+                    redirect('two-factor.php');
+                }
+
+                $loginStage = 'tao_session_hoac_chuyen_dashboard';
+                redirect_to_dashboard();
+                }
+
+                bf_login_record_attempt($email, false);
+
+                if (
+                    isset($_SESSION['pending_verification_email'])
+                    && hash_equals(
+                        (string) $_SESSION['pending_verification_email'],
+                        $email
+                    )
+                ) {
+                    $error =
+                        'Tài khoản chưa xác minh email. ' .
+                        'Vui lòng mở liên kết xác minh trong email.';
+                    bf_audit_log('login.unverified', 'user', null);
+                } else {
+                    $security['attempts']++;
+
+                    if (
+                        $security['attempts']
+                        >= LOGIN_MAX_ATTEMPTS
+                    ) {
+                        $security['locked_until'] =
+                            time() + LOGIN_LOCK_SECONDS;
+
+                        $error =
+                            'Bạn đã thử đăng nhập quá nhiều lần. ' .
+                            'Vui lòng thử lại sau 15 phút.';
+                    } else {
+                        $error =
+                            'Email hoặc mật khẩu không chính xác.';
+                        bf_audit_log('login.failure', 'user', null);
+                    }
+                }
             }
 
         } catch (Throwable $exception) {
@@ -184,397 +231,10 @@ $pageTitle = 'Đăng nhập | ' . APP_NAME;
     >
 
     <title><?= e($pageTitle) ?></title>
-
-    <style>
-        :root {
-            --primary: #4f46e5;
-            --primary-dark: #4338ca;
-            --secondary: #7c3aed;
-            --text: #172033;
-            --muted: #64748b;
-            --border: #e2e8f0;
-            --background: #f8faff;
-        }
-
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
-
-        body {
-            min-height: 100vh;
-            font-family: 'Segoe UI', Arial, sans-serif;
-            background: var(--background);
-            color: var(--text);
-        }
-
-        a {
-            text-decoration: none;
-            color: inherit;
-        }
-
-        button,
-        input {
-            font: inherit;
-        }
-
-        .auth-layout {
-            min-height: 100vh;
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-        }
-
-        /* LEFT - BRAND SECTION */
-
-        .brand-panel {
-            position: relative;
-            display: flex;
-            flex-direction: column;
-            justify-content: space-between;
-            padding: 48px 65px;
-            overflow: hidden;
-            color: white;
-
-            background: linear-gradient(
-                145deg,
-                #312e81 0%,
-                #4f46e5 48%,
-                #7c3aed 100%
-            );
-        }
-
-        .brand-panel::before {
-            content: "";
-            position: absolute;
-            width: 450px;
-            height: 450px;
-            border-radius: 50%;
-            background: rgba(255,255,255,0.07);
-            right: -190px;
-            top: -130px;
-        }
-
-        .brand-panel::after {
-            content: "";
-            position: absolute;
-            width: 340px;
-            height: 340px;
-            border-radius: 50%;
-            background: rgba(255,255,255,0.06);
-            bottom: -160px;
-            left: -130px;
-        }
-
-        .brand-content,
-        .brand-footer {
-            position: relative;
-            z-index: 1;
-        }
-
-        .logo {
-            display: inline-flex;
-            align-items: center;
-            gap: 12px;
-            font-size: 25px;
-            font-weight: 800;
-            letter-spacing: -0.7px;
-        }
-
-        .logo-icon {
-            display: grid;
-            place-items: center;
-            width: 45px;
-            height: 45px;
-            background: rgba(255,255,255,0.18);
-            border: 1px solid rgba(255,255,255,0.22);
-            border-radius: 14px;
-            font-size: 23px;
-        }
-
-        .brand-main {
-            margin-top: 115px;
-            max-width: 510px;
-        }
-
-        .brand-badge {
-            display: inline-block;
-            padding: 9px 16px;
-            border-radius: 30px;
-            font-size: 13px;
-            font-weight: 600;
-            color: #e0e7ff;
-            background: rgba(255,255,255,0.12);
-            margin-bottom: 25px;
-        }
-
-        .brand-main h1 {
-            font-size: clamp(34px, 3.4vw, 53px);
-            line-height: 1.22;
-            letter-spacing: -1.5px;
-            margin-bottom: 23px;
-        }
-
-        .brand-main h1 span {
-            color: #c4b5fd;
-        }
-
-        .brand-main p {
-            font-size: 16px;
-            line-height: 1.9;
-            color: #e0e7ff;
-        }
-
-        .features {
-            display: grid;
-            gap: 18px;
-            margin-top: 42px;
-        }
-
-        .feature {
-            display: flex;
-            align-items: center;
-            gap: 14px;
-            font-size: 15px;
-        }
-
-        .feature-icon {
-            display: grid;
-            place-items: center;
-            width: 43px;
-            height: 43px;
-            flex-shrink: 0;
-            border-radius: 13px;
-            background: rgba(255,255,255,0.13);
-            font-size: 20px;
-        }
-
-        .brand-footer {
-            margin-top: 55px;
-            font-size: 13px;
-            color: #c7d2fe;
-        }
-
-        /* RIGHT - LOGIN SECTION */
-
-        .login-panel {
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            padding: 45px 30px;
-        }
-
-        .login-container {
-            width: 100%;
-            max-width: 430px;
-        }
-
-        .back-home {
-            display: inline-flex;
-            align-items: center;
-            gap: 8px;
-            font-size: 14px;
-            color: var(--muted);
-            margin-bottom: 46px;
-            transition: color .2s;
-        }
-
-        .back-home:hover {
-            color: var(--primary);
-        }
-
-        .login-heading {
-            margin-bottom: 35px;
-        }
-
-        .login-heading h2 {
-            font-size: 33px;
-            font-weight: 800;
-            letter-spacing: -1px;
-            margin-bottom: 11px;
-        }
-
-        .login-heading p {
-            font-size: 15px;
-            line-height: 1.6;
-            color: var(--muted);
-        }
-
-        .form-group {
-            margin-bottom: 23px;
-        }
-
-        .form-label {
-            display: block;
-            margin-bottom: 9px;
-            font-weight: 600;
-            font-size: 14px;
-        }
-
-        .input-wrapper {
-            position: relative;
-        }
-
-        .form-input {
-            width: 100%;
-            height: 54px;
-            padding: 0 16px;
-            border: 1.5px solid var(--border);
-            border-radius: 12px;
-            background: white;
-            outline: none;
-            color: var(--text);
-            transition: all .2s;
-        }
-
-        .form-input::placeholder {
-            color: #94a3b8;
-        }
-
-        .form-input:focus {
-            border-color: var(--primary);
-            box-shadow: 0 0 0 4px rgba(79,70,229,.1);
-        }
-
-        .password-input {
-            padding-right: 78px;
-        }
-
-        .toggle-password {
-            position: absolute;
-            right: 12px;
-            top: 50%;
-            transform: translateY(-50%);
-            border: 0;
-            background: transparent;
-            color: var(--primary);
-            font-size: 13px;
-            font-weight: 600;
-            cursor: pointer;
-            padding: 10px 4px;
-        }
-
-        .form-options {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            gap: 12px;
-            margin: 5px 0 26px;
-        }
-
-        .remember-label {
-            display: flex;
-            align-items: center;
-            gap: 9px;
-            color: var(--muted);
-            font-size: 13px;
-            cursor: pointer;
-        }
-
-        .remember-label input {
-            width: 16px;
-            height: 16px;
-            accent-color: var(--primary);
-        }
-
-        .submit-btn {
-            width: 100%;
-            height: 55px;
-            border: 0;
-            border-radius: 12px;
-            background: linear-gradient(
-                100deg,
-                var(--primary),
-                var(--secondary)
-            );
-            color: white;
-            font-size: 16px;
-            font-weight: 700;
-            cursor: pointer;
-            transition: transform .2s, box-shadow .2s;
-        }
-
-        .submit-btn:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 10px 24px rgba(79,70,229,.25);
-        }
-
-        .submit-btn:disabled {
-            opacity: .75;
-            cursor: wait;
-        }
-
-        .register-text {
-            text-align: center;
-            color: var(--muted);
-            font-size: 14px;
-            margin-top: 30px;
-        }
-
-        .register-text a {
-            font-weight: 700;
-            color: var(--primary);
-        }
-
-        .register-text a:hover {
-            text-decoration: underline;
-        }
-
-        .alert {
-            padding: 14px 16px;
-            border-radius: 11px;
-            font-size: 14px;
-            line-height: 1.6;
-            margin-bottom: 23px;
-        }
-
-        .alert-error {
-            color: #991b1b;
-            background: #fef2f2;
-            border: 1px solid #fecaca;
-        }
-
-        .alert-success {
-            color: #166534;
-            background: #f0fdf4;
-            border: 1px solid #bbf7d0;
-        }
-
-        .login-footer {
-            margin-top: 45px;
-            text-align: center;
-            color: #94a3b8;
-            font-size: 12px;
-        }
-
-        @media (max-width: 900px) {
-            .auth-layout {
-                grid-template-columns: 1fr;
-            }
-
-            .brand-panel {
-                display: none;
-            }
-
-            .login-panel {
-                min-height: 100vh;
-            }
-        }
-
-        @media (max-width: 480px) {
-            .login-panel {
-                padding: 35px 22px;
-            }
-
-            .login-heading h2 {
-                font-size: 29px;
-            }
-
-            .back-home {
-                margin-bottom: 38px;
-            }
-        }
-    </style>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="css/bf-auth.css">
 </head>
 
 <body>
@@ -593,7 +253,7 @@ $pageTitle = 'Đăng nhập | ' . APP_NAME;
                 class="logo"
                 href="<?= e(app_url()) ?>"
             >
-                <span class="logo-icon">&lt;/&gt;</span>
+                <span class="logo-icon"><?= bf_icon('code', 'bf-logo-svg') ?></span>
                 <span>BrightFuture</span>
             </a>
 
@@ -620,7 +280,7 @@ $pageTitle = 'Đăng nhập | ' . APP_NAME;
 
                     <div class="feature">
                         <span class="feature-icon">
-                            &#128218;
+                            <?= bf_icon('book') ?>
                         </span>
                         <span>
                             Khóa học lập trình có lộ trình rõ ràng
@@ -629,7 +289,7 @@ $pageTitle = 'Đăng nhập | ' . APP_NAME;
 
                     <div class="feature">
                         <span class="feature-icon">
-                            &#128187;
+                            <?= bf_icon('laptop') ?>
                         </span>
                         <span>
                             Học lý thuyết kết hợp thực hành
@@ -638,7 +298,7 @@ $pageTitle = 'Đăng nhập | ' . APP_NAME;
 
                     <div class="feature">
                         <span class="feature-icon">
-                            &#127919;
+                            <?= bf_icon('target') ?>
                         </span>
                         <span>
                             Theo dõi tiến độ và kết quả học tập
@@ -789,6 +449,8 @@ $pageTitle = 'Đăng nhập | ' . APP_NAME;
                         Ghi nhớ email
                     </label>
 
+                    <a href="<?= e(app_url('forgot-password.php')) ?>">Quên mật khẩu?</a>
+
                 </div>
 
                 <button
@@ -800,6 +462,11 @@ $pageTitle = 'Đăng nhập | ' . APP_NAME;
                 </button>
 
             </form>
+
+            <p class="register-text">
+                Chưa nhận được email xác minh?
+                <a href="<?= e(app_url('resend-verification.php')) ?>">Gửi lại email</a>
+            </p>
 
             <p class="register-text">
                 Chưa có tài khoản?

@@ -1,0 +1,152 @@
+/* BrightFuture - Social & Community Modal/Chat CSS */
+
+.bf-friends-heading {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+    margin-bottom: 14px;
+}
+
+.bf-friends-heading h2 {
+    margin: 0;
+}
+
+.bf-block-list-trigger {
+    white-space: nowrap;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    cursor: pointer;
+}
+
+.bf-modal-backdrop[hidden] {
+    display: none !important;
+}
+
+.bf-modal-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 9999;
+    background: rgba(15, 23, 42, 0.52);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+}
+
+.bf-modal-dialog {
+    background: #fff;
+    width: min(560px, 100%);
+    max-height: min(80vh, 720px);
+    border-radius: 17px;
+    box-shadow: 0 24px 80px rgba(18, 23, 48, 0.25);
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    outline: none;
+}
+
+.bf-modal-head {
+    padding: 22px 24px 16px;
+    border-bottom: 1px solid var(--color-border, #e2e8f0);
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 16px;
+}
+
+.bf-modal-head h2 {
+    margin: 0 0 6px;
+    font-size: 21px;
+}
+
+.bf-modal-head p {
+    margin: 0;
+    font-size: 13px;
+}
+
+.bf-modal-close {
+    width: 35px;
+    height: 35px;
+    flex: none;
+    border: 0;
+    border-radius: 9px;
+    background: #f1f3fa;
+    color: #334155;
+    font-size: 25px;
+    line-height: 1;
+    cursor: pointer;
+}
+
+.bf-modal-close:hover {
+    background: #e6e8fa;
+}
+
+.bf-modal-body {
+    padding: 12px 24px 24px;
+    overflow-y: auto;
+}
+
+.bf-block-row {
+    padding: 15px 0;
+}
+
+.bf-block-row strong,
+.bf-block-row small {
+    display: block;
+}
+
+.bf-block-row small {
+    font-size: 12px;
+    color: var(--color-muted, #64748b);
+    margin-top: 4px;
+}
+
+.bf-block-empty {
+    text-align: center;
+    color: var(--color-muted, #64748b);
+    padding: 32px 12px;
+}
+
+body.bf-modal-open {
+    overflow: hidden;
+}
+
+/* Messages use normal top-to-bottom flow: oldest above, newest below. */
+.bf-chat {
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-start;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    scroll-behavior: auto;
+}
+
+.bf-bubble {
+    flex: 0 0 auto;
+}
+
+.bf-message-form {
+    position: relative;
+    flex-shrink: 0;
+}
+
+@media (max-width: 540px) {
+    .bf-friends-heading {
+        align-items: stretch;
+    }
+    .bf-block-list-trigger {
+        justify-content: center;
+    }
+    .bf-modal-backdrop {
+        padding: 12px;
+    }
+    .bf-modal-head {
+        padding: 18px;
+    }
+    .bf-modal-body {
+        padding: 10px 18px 20px;
+    }
+}

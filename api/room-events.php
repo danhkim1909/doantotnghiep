@@ -1,5 +1,6 @@
 <?php
 require_once __DIR__.'/../includes/social.php';
+require_once __DIR__.'/../includes/rate_limit.php';
 header('Content-Type: application/json; charset=utf-8');header('Cache-Control: no-store');
 function bf_room_json(int $status,array $body):void {http_response_code($status);echo json_encode($body,JSON_UNESCAPED_UNICODE|JSON_INVALID_UTF8_SUBSTITUTE);exit;}
 try{
@@ -13,13 +14,19 @@ try{
    $to=positive_int($_POST['to']??0);$kind=get_post('kind');$payload=(string)($_POST['payload']??'');
    if($to===$uid||!in_array($kind,['offer','answer','candidate'],true)||strlen($payload)>50000||!is_array(json_decode($payload,true)))bf_room_json(400,['ok'=>false]);
    $s=$pdo->prepare('SELECT 1 FROM bf_meeting_participants WHERE room_id=? AND user_id=?');$s->execute([$room,$to]);if(!$s->fetchColumn())bf_room_json(403,['ok'=>false]);
+   if(!bf_rate_limit_consume($pdo,$uid,'meeting_signal',BF_MEETING_SIGNAL_RATE_LIMIT,BF_USER_RATE_LIMIT_WINDOW_SECONDS))bf_room_json(429,['ok'=>false,'message'=>'Bạn đang gửi tín hiệu quá nhanh. Vui lòng thử lại sau.']);
    $pdo->prepare('INSERT INTO bf_meeting_signals(room_id,sender_id,receiver_id,kind,payload) VALUES (?,?,?,?,?)')->execute([$room,$uid,$to,$kind,$payload]);
   }elseif($action==='chat'){
    $body=trim((string)($_POST['body']??''));if($body===''||bf_social_len($body)>2000)bf_room_json(400,['ok'=>false]);
+   if(!bf_rate_limit_consume($pdo,$uid,'meeting_chat',BF_MEETING_CHAT_RATE_LIMIT,BF_USER_RATE_LIMIT_WINDOW_SECONDS))bf_room_json(429,['ok'=>false,'message'=>'Bạn gửi tin nhắn quá nhanh. Vui lòng chờ một chút.']);
    $pdo->prepare('INSERT INTO bf_meeting_chat(room_id,user_id,body) VALUES (?,?,?)')->execute([$room,$uid,$body]);
   }elseif($action==='kick'){
    $to=positive_int($_POST['to']??0);if((int)$r['host_id']!==$uid||$to===$uid)bf_room_json(403,['ok'=>false]);
    $pdo->prepare('DELETE FROM bf_meeting_participants WHERE room_id=? AND user_id=?')->execute([$room,$to]);
+  }elseif($action==='leave'){
+    $pdo->prepare('DELETE FROM bf_meeting_participants WHERE room_id=? AND user_id=?')->execute([$room,$uid]);
+    $pdo->prepare('DELETE FROM bf_meeting_signals WHERE room_id=? AND (sender_id=? OR receiver_id=?)')->execute([$room,$uid,$uid]);
+    bf_room_json(200,['ok'=>true,'message'=>'Đã rời phòng.']);
   }elseif($action==='heartbeat'){}else bf_room_json(400,['ok'=>false]);
   $pdo->prepare('UPDATE bf_meeting_participants SET last_seen=NOW() WHERE room_id=? AND user_id=?')->execute([$room,$uid]);
   bf_room_json(200,['ok'=>true]);

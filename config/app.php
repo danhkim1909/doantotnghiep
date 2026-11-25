@@ -167,6 +167,40 @@ if (!function_exists('redirect')) {
     }
 }
 
+if (!function_exists('app_request_is_https')) {
+    function app_request_is_https(): bool
+    {
+        $https = strtolower(trim((string) ($_SERVER['HTTPS'] ?? '')));
+        if (in_array($https, ['on', '1', 'true', 'https'], true)) {
+            return true;
+        }
+
+        if (
+            strtolower(trim((string) ($_SERVER['REQUEST_SCHEME'] ?? ''))) === 'https'
+            || (string) ($_SERVER['SERVER_PORT'] ?? '') === '443'
+        ) {
+            return true;
+        }
+
+        $remoteAddress = trim((string) ($_SERVER['REMOTE_ADDR'] ?? ''));
+        if (!filter_var($remoteAddress, FILTER_VALIDATE_IP)) {
+            return false;
+        }
+
+        $trustedProxies = array_map(
+            'trim',
+            explode(',', (string) env_value('TRUSTED_PROXIES', ''))
+        );
+        if (!in_array($remoteAddress, $trustedProxies, true)) {
+            return false;
+        }
+
+        return strtolower(trim(
+            (string) ($_SERVER['HTTP_X_FORWARDED_PROTO'] ?? '')
+        )) === 'https';
+    }
+}
+
 
 // ====================================================
 // 7. CAU HINH SESSION
@@ -204,10 +238,7 @@ if (!function_exists('startAppSession')) {
             );
         }
 
-        $isHttps = (
-            !empty($_SERVER['HTTPS'])
-            && $_SERVER['HTTPS'] !== 'off'
-        );
+        $isHttps = app_request_is_https();
 
         session_name(SESSION_NAME);
 
@@ -398,10 +429,31 @@ if (!function_exists('setSecurityHeaders')) {
         }
 
         header('X-Content-Type-Options: nosniff');
-
         header('X-Frame-Options: SAMEORIGIN');
-
         header('Referrer-Policy: strict-origin-when-cross-origin');
+        header('Permissions-Policy: camera=(self), microphone=(self), geolocation=(), payment=(), usb=()');
+        header('Cross-Origin-Opener-Policy: same-origin');
+        header('Cross-Origin-Resource-Policy: same-origin');
+        header(
+            "Content-Security-Policy: "
+            . "default-src 'self'; "
+            . "base-uri 'self'; "
+            . "object-src 'none'; "
+            . "frame-ancestors 'self'; "
+            . "form-action 'self'; "
+            . "frame-src 'self' https://www.youtube.com https://www.youtube-nocookie.com; "
+            . "img-src 'self' data: blob: https://i.ytimg.com https://*.ytimg.com; "
+            . "media-src 'self' blob: https://*.youtube.com https://*.googlevideo.com; "
+            . "connect-src 'self' blob: https://www.youtube.com https://www.google.com https://*.googlevideo.com; "
+            . "font-src 'self' data: https://fonts.gstatic.com; "
+            . "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
+            . "script-src 'self' 'unsafe-inline' https://www.youtube.com https://s.ytimg.com"
+        );
+
+        $isHttps = app_request_is_https();
+        if ($isHttps) {
+            header('Strict-Transport-Security: max-age=31536000; includeSubDomains');
+        }
     }
 }
 

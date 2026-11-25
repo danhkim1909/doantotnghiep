@@ -243,7 +243,7 @@ try {
     }
 
     $courseStmt = $pdo->prepare(
-        'SELECT id, title, status, teacher_id FROM courses WHERE id = :id LIMIT 1'
+        'SELECT id, title, status, teacher_id FROM courses WHERE id = :id AND deleted_at IS NULL LIMIT 1'
     );
     $courseStmt->execute(['id' => $courseId]);
     $course = $courseStmt->fetch();

@@ -2,10 +2,11 @@
 /**
  * BrightFuture - Student learning progress
  * File: student/progress.php
- * Requirements: PHP 8+, PDO MySQL, schema.sql + phase2.sql + phase3.sql
+ * Requirements: PHP 8+, PDO MySQL, canonical database baseline and migrations
  */
 
 require_once __DIR__ . '/../includes/permissions.php';
+require_once __DIR__ . '/../includes/portal_ui.php';
 
 $user = require_role(ROLE_STUDENT);
 header('Cache-Control: private, no-store, max-age=0');
@@ -150,63 +151,23 @@ $visibleCourses = $selectedCourseId > 0
     : $courseRows;
 $lessonPercent = progress_percent($totals['completed'], $totals['lessons']);
 $exercisePercent = progress_percent($totals['attempted'], $totals['exercises']);
-$avatarName = trim((string)$user['full_name']);
-$avatarLetter = function_exists('mb_substr') ? mb_substr($avatarName, 0, 1, 'UTF-8') : substr($avatarName, 0, 1);
-?>
-<!DOCTYPE html>
-<html lang="vi">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="description" content="Theo dõi tiến độ học tập BrightFuture">
-<title>Tiến độ học tập | <?= e(APP_NAME) ?></title>
-<style>
-:root{--primary:#4f46e5;--secondary:#7c3aed;--ink:#172033;--muted:#64748b;--line:#e7ebf2;--surface:#fff;--bg:#f6f8fc;--sidebar:255px}
-*{box-sizing:border-box}body{margin:0;font-family:'Segoe UI',Arial,sans-serif;color:var(--ink);background:var(--bg)}a{color:inherit;text-decoration:none}button,select{font:inherit}.layout{min-height:100vh}
-.sidebar{position:fixed;inset:0 auto 0 0;width:var(--sidebar);background:#fff;border-right:1px solid var(--line);z-index:40;display:flex;flex-direction:column;transition:transform .22s}.brand{height:89px;padding:0 23px;display:flex;align-items:center;gap:11px;font-weight:800;font-size:21px;color:var(--primary)}.brand-icon{display:grid;place-items:center;width:39px;height:39px;border-radius:12px;background:linear-gradient(135deg,var(--primary),var(--secondary));color:#fff;font-size:15px}.nav{padding:12px 15px;overflow:auto;flex:1}.nav-label{text-transform:uppercase;font-size:11px;color:#94a3b8;font-weight:700;letter-spacing:1px;margin:14px 12px 10px}.nav a{display:flex;align-items:center;gap:12px;padding:13px 14px;border-radius:11px;color:var(--muted);font-size:14px;margin-bottom:4px}.nav a:hover,.nav a.active{background:#eef2ff;color:var(--primary)}.nav a.active{font-weight:700}.nav a span{font-size:18px;width:23px;text-align:center}.side-bottom{padding:16px;border-top:1px solid var(--line)}.user{display:flex;align-items:center;gap:10px;margin-bottom:14px}.avatar{display:grid;place-items:center;flex-shrink:0;width:42px;height:42px;border-radius:12px;background:#ede9fe;color:#6d28d9;font-weight:800}.user small{color:var(--muted);display:block;margin-top:4px}.user strong{display:block;max-width:158px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:13px}.logout{width:100%;padding:12px;border:0;border-radius:10px;background:#fff1f2;color:#be123c;font-weight:700;cursor:pointer}
-.main{margin-left:var(--sidebar)}.topbar{height:82px;padding:0 36px;background:white;border-bottom:1px solid var(--line);display:flex;align-items:center;justify-content:space-between;gap:14px;color:var(--muted);font-size:14px}.topbar-right{display:flex;align-items:center;gap:12px;color:var(--ink);font-weight:600}.topbar-avatar{display:grid;place-items:center;width:36px;height:36px;border-radius:50%;background:#e0e7ff;color:var(--primary)}.menu-toggle{display:none;border:0;background:none;font-size:25px;cursor:pointer}.content{max-width:1500px;margin:auto;padding:32px 36px 60px}.breadcrumb{font-size:13px;color:var(--muted);margin-bottom:21px}.breadcrumb a:hover{color:var(--primary)}.heading{display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;margin-bottom:27px}.heading h1{font-size:29px;letter-spacing:-.7px;margin:0 0 9px}.heading p{font-size:14px;line-height:1.6;color:var(--muted);margin:0}.filter{display:flex;align-items:center;gap:10px}.filter label{font-size:13px;color:var(--muted)}.filter select{border:1px solid var(--line);border-radius:11px;padding:12px;max-width:260px;background:#fff;min-width:160px}
-.stats{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:18px;margin-bottom:25px}.stat{padding:22px;background:#fff;border:1px solid var(--line);border-radius:17px;display:flex;justify-content:space-between;gap:12px;align-items:flex-start}.stat p{font-size:13px;color:var(--muted);margin:0 0 13px}.stat strong{font-size:28px;letter-spacing:-.5px}.stat-icon{display:grid;place-items:center;width:44px;height:44px;background:#eef2ff;color:var(--primary);border-radius:12px;font-size:23px;flex-shrink:0}
-.panel{background:#fff;border:1px solid var(--line);border-radius:17px;padding:23px;min-width:0}.panel h2{font-size:19px;margin:0 0 7px}.subtext{color:var(--muted);font-size:13px;line-height:1.6;margin:0 0 23px}.section{margin-bottom:25px}.chart-row{display:grid;grid-template-columns:minmax(120px,1fr) minmax(140px,2fr) 58px;gap:15px;align-items:center;padding:13px 0;border-bottom:1px solid var(--line)}.chart-row:last-child{border:0}.chart-name{font-size:13px;font-weight:600;line-height:1.5;overflow-wrap:anywhere}.chart-name small{display:block;color:var(--muted);font-weight:400}.bar-track{height:13px;border-radius:20px;background:#e9edf5;overflow:hidden}.bar-fill{height:100%;border-radius:20px;background:linear-gradient(90deg,#4f46e5,#8b5cf6)}.bar-label{font-weight:700;color:var(--primary);font-size:13px;text-align:right;font-variant-numeric:tabular-nums}.course-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:18px}.course{border:1px solid var(--line);border-radius:15px;padding:19px;min-width:0}.course-top{display:flex;justify-content:space-between;gap:12px;align-items:flex-start;margin-bottom:15px}.course h3{font-size:16px;line-height:1.45;margin:0 0 7px;overflow-wrap:anywhere}.course p{font-size:12px;color:var(--muted);line-height:1.6;margin:0}.tag{display:inline-block;border-radius:100px;padding:6px 10px;background:#eef2ff;color:var(--primary);font-size:11px;font-weight:700;white-space:nowrap}.tag.done{background:#dcfce7;color:#166534}.meter-head{display:flex;justify-content:space-between;gap:8px;font-size:12px;margin:12px 0 9px}.meter-head span{color:var(--muted)}.meter-head strong{color:var(--primary)}.bar-track.small{height:8px}.course-meta{display:grid;grid-template-columns:1fr 1fr;gap:12px;border-top:1px solid var(--line);margin-top:18px;padding-top:16px;font-size:12px;color:var(--muted)}.course-meta strong{display:block;color:var(--ink);font-size:15px;margin-top:5px}.course-link{display:inline-block;color:var(--primary);font-weight:700;font-size:13px;margin-top:17px}.table-scroll{overflow:auto}.data-table{width:100%;border-collapse:collapse;font-size:13px;min-width:650px}.data-table th{text-align:left;padding:13px 12px;color:var(--muted);font-weight:600;background:#f8faff}.data-table td{padding:15px 12px;border-top:1px solid var(--line);vertical-align:top}.data-table td a{color:var(--primary);font-weight:600}.data-table td small{color:var(--muted)}.empty{text-align:center;padding:35px 15px;color:var(--muted);font-size:14px;line-height:1.7}.empty a{color:var(--primary);font-weight:700}.alert{padding:15px 18px;border-radius:12px;background:#fff7ed;border:1px solid #fed7aa;color:#9a3412;margin-bottom:22px;font-size:14px}.hint{margin-top:12px;color:var(--muted);font-size:12px;line-height:1.6}.overlay{display:none}
-@media(max-width:1200px){.stats{grid-template-columns:repeat(2,minmax(0,1fr))}}@media(max-width:900px){.sidebar{transform:translateX(-100%)}.sidebar.open{transform:translateX(0)}.main{margin-left:0}.menu-toggle{display:block}.overlay.show{display:block;position:fixed;inset:0;background:rgba(15,23,42,.45);z-index:30}.topbar{height:70px;padding:0 22px}.content{padding:25px 22px 45px}}@media(max-width:650px){.stats,.course-grid{grid-template-columns:1fr}.content{padding:20px 15px 40px}.topbar{padding:0 15px}.topbar-right .full-name{display:none}.heading h1{font-size:25px}.filter{width:100%;align-items:stretch;flex-direction:column}.filter select{max-width:none;width:100%}.chart-row{grid-template-columns:minmax(90px,1fr) minmax(80px,1fr) 45px;gap:8px}.panel{padding:17px}.stat{padding:19px}}
-</style>
-<link rel="stylesheet" href="<?= e(app_url('css/bf-legacy-fixes.css')) ?>">
 
-<link rel="stylesheet" href="<?= e(app_url('css/bf-ux-refresh.css')) ?>">
-</head>
-<body>
-<div class="layout">
-<div class="overlay" id="overlay" aria-hidden="true"></div>
-<aside class="sidebar" id="sidebar">
-    <a class="brand" href="<?= e(app_url()) ?>"><span class="brand-icon">&lt;/&gt;</span>BrightFuture</a>
-    <nav class="nav" aria-label="Menu học viên">
-        <div class="nav-label">Học tập</div>
-        <a href="<?= e(app_url('student/dashboard.php')) ?>"><span>▦</span>Tổng quan</a>
-        <a href="<?= e(app_url('student/my-courses.php')) ?>"><span>📚</span>Khóa học của tôi</a>
-        <a href="<?= e(app_url('courses.php')) ?>"><span>⌕</span>Khám phá khóa học</a>
-        <a href="<?= e(app_url('student/exercises.php')) ?>"><span>⌨</span>Bài tập</a>
-        <a href="<?= e(app_url('student/progress.php')) ?>" class="active" aria-current="page"><span>▥</span>Tiến độ học tập</a>
-        <div class="nav-label">Cá nhân</div>
-        <a href="<?= e(app_url('profile.php')) ?>"><span>♙</span>Hồ sơ của tôi</a>
-        <a href="<?= e(app_url()) ?>"><span>⌂</span>Trang chủ</a>
-    <a href="<?= e(app_url('certificate.php')) ?>">✧ Chứng chỉ của tôi</a>
-</nav>
-    <div class="side-bottom">
-        <div class="user"><span class="avatar"><?= e($avatarLetter) ?></span><div><strong><?= e($avatarName) ?></strong><small>Học viên</small></div></div>
-        <form action="<?= e(app_url('logout.php')) ?>" method="POST"><?= csrf_field() ?><button class="logout" type="submit">Đăng xuất</button></form>
-    </div>
-</aside>
-<div class="main">
-<header class="topbar">
-    <div style="display:flex;align-items:center;gap:15px"><button type="button" class="menu-toggle" id="menuToggle" aria-controls="sidebar" aria-expanded="false" aria-label="Mở menu">☰</button><span>Không gian học tập</span></div>
-    <div class="topbar-right"><span class="full-name"><?= e($avatarName) ?></span><span class="topbar-avatar"><?= e($avatarLetter) ?></span></div>
-</header>
-<main class="content">
+$pageTitle = 'Tiến độ học tập';
+$pageDescription = 'Theo dõi tiến độ học tập trên BrightFuture';
+$activeMenu = 'progress';
+$extraCss = ['css/bf-student-progress.css'];
+
+require_once __DIR__ . '/../views/layouts/portal_head.php';
+?>
+<?= bf_unified_sidebar($user, 'progress') ?>
+<?php require_once __DIR__ . '/../views/layouts/portal_topbar.php'; ?>
+<main class="content progress-content">
     <div class="breadcrumb"><a href="<?= e(app_url('student/dashboard.php')) ?>">Tổng quan</a> / <strong>Tiến độ học tập</strong></div>
     <div class="heading"><div><h1>Tiến độ học tập</h1><p>Theo dõi bài học, bài tập và kết quả thực tế của bạn trên BrightFuture.</p></div>
     <form class="filter" method="GET" action="<?= e(app_url('student/progress.php')) ?>"><label for="course_id">Xem chi tiết:</label><select id="course_id" name="course_id" onchange="this.form.submit()"><option value="">Tất cả khóa học</option>
     <?php foreach ($courseRows as $course): ?><option value="<?= (int)$course['id'] ?>" <?= $selectedCourseId === (int)$course['id'] ? 'selected' : '' ?>><?= e((string)$course['title']) ?></option><?php endforeach; ?>
     </select><noscript><button type="submit">Lọc</button></noscript></form></div>
-    <?php if ($errorLoading): ?><div class="alert" role="alert">Không thể tải dữ liệu tiến độ. Hãy kiểm tra kết nối MySQL và các bảng, View từ phase3.sql.</div><?php endif; ?>
+    <?php if ($errorLoading): ?><div class="alert" role="alert">Không thể tải dữ liệu tiến độ. Hãy kiểm tra kết nối MySQL, schema baseline và trạng thái migration.</div><?php endif; ?>
     <section class="stats" aria-label="Thống kê học tập toàn bộ khóa học">
         <div class="stat"><div><p>Khóa học đã đăng ký</p><strong><?= format_number($totals['courses']) ?></strong></div><div class="stat-icon">📚</div></div>
         <div class="stat"><div><p>Bài học hoàn thành</p><strong><?= format_number($totals['completed']) ?> / <?= format_number($totals['lessons']) ?></strong></div><div class="stat-icon">✓</div></div>
@@ -253,23 +214,5 @@ $avatarLetter = function_exists('mb_substr') ? mb_substr($avatarName, 0, 1, 'UTF
         <?php endforeach; ?>
         </tbody></table></div><?php endif; ?>
     </section>
-</main></div></div>
-<script>
-(function(){
-    const sidebar=document.getElementById('sidebar');
-    const overlay=document.getElementById('overlay');
-    const button=document.getElementById('menuToggle');
-    if(!sidebar||!overlay||!button)return;
-    function show(open){sidebar.classList.toggle('open',open);overlay.classList.toggle('show',open);button.setAttribute('aria-expanded',String(open));button.setAttribute('aria-label',open?'Đóng menu':'Mở menu');}
-    button.addEventListener('click',()=>show(!sidebar.classList.contains('open')));
-    overlay.addEventListener('click',()=>show(false));
-    document.addEventListener('keydown',e=>{if(e.key==='Escape')show(false)});
-    window.addEventListener('resize',()=>{if(window.innerWidth>900)show(false)});
-})();
-</script>
-<script>window.BF_LEGACY={role:'student',base:<?= json_encode(rtrim(BASE_URL, '/')) ?>};</script>
-<script src="<?= e(app_url('js/bf-legacy-fixes.js')) ?>" defer></script>
-
-<script src="<?= e(app_url('js/bf-ux-refresh.js')) ?>" defer></script>
-</body>
-</html>
+</main>
+<?php require_once __DIR__ . '/../views/layouts/portal_foot.php'; ?>

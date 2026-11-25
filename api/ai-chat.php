@@ -55,20 +55,18 @@ if (!is_string($message) || trim($message) === '' || strlen($message) > 7000) {
     bf_ai_json(422, ['ok' => false, 'message' => 'Câu hỏi phải có nội dung và không quá 7000 byte.']);
 }
 $message = trim($message);
-$now = time();
-if ($now - (int)$state['hour_start'] > 3600) {
-    $state['hour_start'] = $now;
-    $state['hour_count'] = 0;
+try {
+    $quota = bf_ai_consume_account_quota(db(), (int) $user['id']);
+} catch (Throwable $exception) {
+    error_log('[BrightFuture AI] Quota check failed: ' . $exception->getMessage());
+    bf_ai_json(503, ['ok' => false, 'message' => 'Không thể kiểm tra hạn mức AI lúc này. Vui lòng thử lại sau.']);
 }
-if ($now - (int)$state['last_sent'] < 5) {
+if (!$quota['allowed'] && $quota['reason'] === 'cooldown') {
     bf_ai_json(429, ['ok' => false, 'message' => 'Hãy chờ ít nhất 5 giây giữa các câu hỏi.']);
 }
-if ((int)$state['hour_count'] >= 40) {
-    bf_ai_json(429, ['ok' => false, 'message' => 'Đã đạt giới hạn 40 câu hỏi/giờ của phiên này.']);
+if (!$quota['allowed']) {
+    bf_ai_json(429, ['ok' => false, 'message' => 'Đã đạt giới hạn 40 câu hỏi/giờ của tài khoản.']);
 }
-// Count API attempts too, including failed upstream calls, to protect the owner's API balance.
-$state['hour_count']++;
-$state['last_sent'] = $now;
 $previous = array_slice($state['messages'], -12);
 $input = $previous;
 $input[] = ['role' => 'user', 'content' => $message];

@@ -45,7 +45,7 @@ bf_portal_begin($user, 'ai', 'Trợ giảng AI');
     <div class="ai-bottom">
         <div class="ai-error" id="aiError" role="alert" hidden></div>
         <form id="aiForm" class="ai-form"><label for="aiInput" class="ai-visually-hidden">Nhập câu hỏi</label><textarea id="aiInput" rows="2" maxlength="7000" placeholder="Viết câu hỏi của bạn... (Enter để gửi, Shift + Enter xuống dòng)" <?= $available ? '' : 'disabled' ?> required></textarea><button type="submit" id="aiSend" <?= $available ? '' : 'disabled' ?> aria-label="Gửi câu hỏi">Gửi <span>➤</span></button></form>
-        <p class="ai-footnote">AI có thể mắc lỗi. Hãy kiểm tra các đáp án quan trọng. Nội dung bạn gửi và ngữ cảnh bài học (nếu có) được chuyển tới OpenAI để trả lời. Lịch sử chỉ lưu trong phiên đăng nhập.</p>
+        <p class="ai-footnote">AI có thể mắc lỗi. Hãy kiểm tra các đáp án quan trọng. Câu hỏi hiện tại, tối đa 12 tin nhắn trước đó và trích đoạn bài học (nếu có) được gửi tới OpenAI để tạo câu trả lời. BrightFuture chỉ lưu lịch sử trong phiên đăng nhập; việc xử lý dữ liệu phía nhà cung cấp tuân theo điều khoản và chính sách của OpenAI. Không gửi mật khẩu, thông tin cá nhân nhạy cảm hoặc dữ liệu bí mật.</p>
     </div>
 </section>
 <script>

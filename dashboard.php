@@ -28,7 +28,7 @@ $requestMethod = strtoupper(
     $_SERVER['REQUEST_METHOD'] ?? 'GET'
 );
 
-if ($requestMethod !== 'GET') {
+if ($requestMethod !== 'GET' && $requestMethod !== 'HEAD') {
 
     header('Allow: GET');
     http_response_code(405);
@@ -39,20 +39,12 @@ if ($requestMethod !== 'GET') {
 }
 
 // ==================================================
-// 4. BAT BUOC DANG NHAP
+// 4. BAT BUOC DANG NHAP (KHACH CHUYEN VE TRANG CHU)
 // ==================================================
 
-// require_login() da duoc dinh nghia
-// trong includes/auth.php.
-//
-// Neu chua dang nhap:
-// - Luu thong bao vao Session
-// - Chuyen ve login.php
-//
-// Neu da dang nhap:
-// - Lay thong tin user tu MySQL
-// - Kiem tra vai tro
-// - Lam moi Session ID dinh ky
+if (!is_logged_in()) {
+    redirect('index.php');
+}
 
 $user = require_login();
 

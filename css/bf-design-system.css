@@ -1,0 +1,243 @@
+@import url("tokens.css");
+
+.layout .sidebar,
+.layout .topbar,
+.layout .stat-card,
+.layout .welcome-banner,
+.layout .section,
+.layout .course-card,
+.layout .activity-card,
+.layout .recommendation-card {
+  border-radius: var(--bf-ds-radius);
+}
+
+.layout .sidebar {
+  border-radius: 0;
+  box-shadow: 8px 0 28px rgba(23, 32, 51, 0.035);
+}
+
+.layout .topbar {
+  border-radius: 0;
+}
+
+.layout .stat-card,
+.layout .course-card,
+.layout .activity-card,
+.layout .recommendation-card,
+.layout .section {
+  box-shadow: var(--bf-ds-shadow);
+  transition: box-shadow 180ms ease, border-color 180ms ease, transform 180ms ease;
+}
+
+.layout .stat-card:hover,
+.layout .course-card:hover,
+.layout .activity-card:hover,
+.layout .recommendation-card:hover {
+  box-shadow: 0 18px 42px rgba(23, 32, 51, 0.09);
+  transform: translateY(-1px);
+}
+
+.layout .welcome-banner {
+  background: linear-gradient(115deg, #4338ca 0%, #5046e5 68%, #6366f1 100%);
+  border: 0;
+  box-shadow: 0 18px 44px rgba(79, 70, 229, 0.16);
+}
+
+.layout .welcome-banner::before,
+.layout .welcome-banner::after {
+  background: rgba(255, 255, 255, 0.09);
+}
+
+.layout .nav-link {
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.layout .nav-icon,
+.layout .mobile-menu-icon,
+.layout .logout-icon,
+.layout .welcome-action-icon {
+  width: 20px;
+  height: 20px;
+  flex: 0 0 20px;
+}
+
+.layout .nav-icon {
+  color: currentColor;
+  display: grid;
+  place-items: center;
+  text-align: left;
+}
+
+.layout .nav-link .nav-icon {
+  font-size: 0;
+}
+
+.layout .logout-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+
+.layout .welcome-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.layout .mobile-menu {
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  padding: 0;
+}
+
+.layout .stat-icon {
+  display: grid;
+  place-items: center;
+  font-size: 0;
+}
+
+.layout .stat-icon svg {
+  width: 21px;
+  height: 21px;
+}
+
+.layout .empty-icon,
+.layout .lesson-icon,
+.layout .view-all-icon {
+  display: inline-grid;
+  place-items: center;
+}
+
+.layout .empty-icon svg,
+.layout .lesson-icon svg,
+.layout .view-all-icon {
+  width: 20px;
+  height: 20px;
+}
+
+.sidebar .nav-symbol,
+.side .nav-symbol,
+.nav a .nav-symbol {
+  width: 20px;
+  height: 20px;
+  display: inline-grid;
+  place-items: center;
+  flex: 0 0 20px;
+}
+
+.sidebar .nav a,
+.side .nav a,
+.nav a {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.sidebar .nav a span:not(.nav-symbol),
+.side .nav a span:not(.nav-symbol) {
+  min-width: 0;
+}
+
+.teacher .stat-icon,
+.admin .stat-icon,
+.stat-icon {
+  display: grid;
+  place-items: center;
+  font-size: 0;
+}
+
+.teacher .stat-icon svg,
+.admin .stat-icon svg,
+.stat-icon svg {
+  width: 21px;
+  height: 21px;
+}
+
+.welcome,
+.banner {
+  box-shadow: 0 18px 44px rgba(79, 70, 229, 0.14);
+}
+
+.panel,
+.stat,
+.course,
+.submission,
+.short-grid .quick-link,
+.layout .panel,
+.layout .stat,
+.layout .course,
+.layout .submission {
+  box-shadow: 0 10px 28px rgba(23, 32, 51, 0.045);
+}
+
+.sidebar .logo,
+.side .brand {
+  letter-spacing: -0.02em;
+}
+
+.quick a {
+  display: grid;
+  grid-template-columns: 20px minmax(0, 1fr) 20px;
+  align-items: center;
+  gap: 10px;
+}
+
+.quick a svg,
+.submission-icon svg,
+.stat-icon svg,
+.mobile-menu svg {
+  width: 20px;
+  height: 20px;
+  flex: 0 0 20px;
+}
+
+.short-grid .quick-link {
+  display: grid;
+  grid-template-columns: 24px minmax(0, 1fr) 20px;
+  align-items: center;
+  gap: 9px;
+}
+
+.short-grid .quick-icon,
+.short-grid .quick-link svg {
+  width: 20px;
+  height: 20px;
+  display: grid;
+  place-items: center;
+  font-size: 0;
+}
+
+.sidebar .logout,
+.side .logout,
+.side-bottom .logout {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+
+.sidebar .logout svg,
+.side .logout svg,
+.side-bottom .logout svg {
+  width: 20px;
+  height: 20px;
+  flex: 0 0 20px;
+}
+
+.layout .welcome-badge {
+  font-weight: 750;
+  letter-spacing: 0.01em;
+}
+
+@media (max-width: 900px) {
+  .layout .sidebar {
+    box-shadow: 18px 0 50px rgba(15, 23, 42, 0.18);
+  }
+}
+

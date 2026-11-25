@@ -1,0 +1,199 @@
+/* BrightFuture - Unified Notifications CSS
+   Dùng chung cho student/notifications.php và teacher/notifications.php */
+
+.bf-notice {
+    border: 1px solid var(--color-border, #e2e8f0);
+    border-radius: var(--radius-lg, 14px);
+    padding: var(--space-5, 18px);
+    background: var(--color-surface, #ffffff);
+    display: flex;
+    gap: var(--space-4, 16px);
+    align-items: center;
+    justify-content: space-between;
+    margin: 12px 0;
+    transition: transform var(--transition-fast, 0.15s ease), box-shadow var(--transition-fast, 0.15s ease);
+}
+
+.bf-notice.unread {
+    border-color: #a5b4fc;
+    background: #f8faff;
+}
+
+.bf-notice h2 {
+    font-size: 16px;
+    font-weight: 700;
+    color: var(--color-text, #0f172a);
+    margin: 6px 0;
+}
+
+.bf-notice p {
+    margin: 5px 0;
+    overflow-wrap: anywhere;
+}
+
+.bf-notice-meta {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    flex-wrap: wrap;
+    color: var(--color-muted, #64748b);
+    font-size: 12px;
+}
+
+.bf-notice-preview {
+    font-size: 13px;
+    color: #475569;
+    white-space: pre-wrap;
+    line-height: 1.5;
+}
+
+.bf-notice-btn {
+    white-space: nowrap;
+}
+
+/* Pill badge */
+.bf-notice-pill {
+    display: inline-block;
+    background: #eef2ff;
+    color: #3730a3;
+    padding: 3px 10px;
+    border-radius: 99px;
+    font-weight: 700;
+    font-size: 12px;
+}
+
+.bf-notice-pill.danger,
+.pill.red {
+    background: #fff1f2;
+    color: #be123c;
+}
+
+/* Teacher legacy aliases for notifications */
+.pill {
+    display: inline-block;
+    background: #eef2ff;
+    color: #3730a3;
+    padding: 3px 10px;
+    border-radius: 99px;
+    font-weight: 700;
+    font-size: 12px;
+}
+
+.toolbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    flex-wrap: wrap;
+    margin-bottom: 18px;
+}
+
+.toolbar button,
+.open {
+    border: 0;
+    border-radius: 9px;
+    background: var(--color-primary, #4f46e5);
+    color: #fff;
+    padding: 10px 15px;
+    font-weight: 700;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    cursor: pointer;
+}
+
+.toolbar button:disabled {
+    opacity: .5;
+    cursor: not-allowed;
+}
+
+.item {
+    padding: 19px 22px;
+    border: 1px solid var(--color-border, #e2e8f0);
+    border-radius: 15px;
+    background: white;
+    margin: 11px 0;
+    display: flex;
+    gap: 20px;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.item.unread {
+    border-color: #a5b4fc;
+    background: #f9faff;
+}
+
+.item h2 {
+    font-size: 17px;
+    line-height: 1.4;
+    margin: 7px 0 5px;
+}
+
+.item p {
+    margin: 5px 0;
+    overflow-wrap: anywhere;
+}
+
+.item small {
+    color: var(--color-muted, #64748b);
+}
+
+.meta {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.excerpt {
+    max-width: 720px;
+    white-space: pre-wrap;
+    color: #475569;
+}
+
+.empty,
+.alert {
+    background: white;
+    border: 1px solid var(--color-border, #e2e8f0);
+    padding: 25px;
+    border-radius: 14px;
+}
+
+.alert {
+    padding: 13px 17px;
+    margin: 15px 0;
+}
+
+.alert.error {
+    border-color: #fecaca;
+    background: #fef2f2;
+    color: #991b1b;
+}
+
+.alert.good {
+    border-color: #bbf7d0;
+    background: #f0fdf4;
+    color: #166534;
+}
+
+@media (max-width: 620px) {
+    .item {
+        flex-direction: column;
+        align-items: stretch;
+    }
+    .item form {
+        text-align: right;
+    }
+}
+
+@media (max-width: 700px) {
+    .bf-notice {
+        flex-direction: column;
+        align-items: stretch;
+    }
+    .bf-notice-btn {
+        margin-top: 12px;
+        text-align: right;
+    }
+}

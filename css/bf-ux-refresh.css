@@ -31,9 +31,11 @@ table{font-variant-numeric:tabular-nums}th{font-weight:750}tbody tr{transition:b
 .bfux-search-close{border:0;background:#f2f4fa;color:#42526b;border-radius:9px;padding:5px 10px;font-size:20px}
 .bfux-search-input{width:calc(100% - 36px);margin:8px 18px 12px;border:1px solid #d6dff0!important;border-radius:11px;padding:13px 14px;background:#fafbff;font-size:15px;outline:0}
 .bfux-search-results{padding:6px 12px 13px;max-height:min(55vh,430px);overflow-y:auto}
-.bfux-search-results a{display:flex;align-items:center;gap:11px;padding:12px;border-radius:10px;color:#27364d;text-decoration:none;font-weight:650;line-height:1.4}
-.bfux-search-results a:hover,.bfux-search-results a:focus{background:#eff2ff;color:#4338ca}
-.bfux-search-results a .bfux-search-icon{width:28px;height:28px;display:grid;place-items:center;border-radius:8px;background:#eef2ff;color:#4f46e5}
+.bfux-search-results a{display:flex;align-items:center;gap:11px;padding:12px;border-radius:10px;color:#27364d;text-decoration:none;font-weight:600;line-height:1.4;transition:all 0.15s ease}
+.bfux-search-results a:hover, .bfux-search-results a:focus, .bfux-search-results a.is-active{background:#eff2ff;color:#4338ca}
+.bfux-search-results a .bfux-search-icon{width:28px;height:28px;display:grid;place-items:center;border-radius:8px;background:#eef2ff;color:#4f46e5;flex-shrink:0}
+.bfux-search-help kbd{background:#f1f5f9;border:1px solid #cbd5e1;border-radius:4px;padding:2px 5px;font-size:11px;font-weight:600;color:#475569}
+.bf-cmd-trigger:hover{background:#f1f5f9!important;border-color:#cbd5e1!important}
 .bfux-search-help{padding:11px 18px;color:#64748b;font-size:12px;border-top:1px solid #edf0f6}
 .bfux-no-results{padding:18px;color:#64748b;text-align:center}
 body.bfux-modal-active{overflow:hidden}
@@ -42,3 +44,137 @@ body.bfux-modal-active{overflow:hidden}
 @media(max-width:650px){:where(.content,.container,.bf-container){padding-left:14px!important;padding-right:14px!important}:where(.topbar,.bf-top){min-height:62px}.bfux-toolbar{margin-left:0}.bfux-tool{font-size:0;min-width:36px;height:36px;padding:8px}.bfux-tool svg{width:19px;height:19px}.bfux-search-layer{padding-top:35px}:where(.panel,.bf-panel){max-width:100%}}
 @media(prefers-reduced-motion:reduce){html{scroll-behavior:auto}*,*::before,*::after{transition-duration:.01ms!important;animation-duration:.01ms!important}}
 .bfux-tool[hidden]{display:none!important}
+.bfux-search-close{width:38px;height:38px;display:inline-grid;place-items:center;padding:0}
+.bfux-search-close svg{width:18px;height:18px}
+
+/* Shimmer Skeleton Loader */
+.bf-skeleton {
+  background: linear-gradient(90deg, #f1f5f9 25%, #e2e8f0 50%, #f1f5f9 75%);
+  background-size: 200% 100%;
+  animation: bf-shimmer 1.5s infinite;
+  border-radius: 8px;
+  display: inline-block;
+}
+@keyframes bf-shimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+/* Empty State component styling */
+.bf-empty-state {
+  text-align: center;
+  padding: 48px 24px;
+  background: #ffffff;
+  border: 1px dashed #cbd5e1;
+  border-radius: 16px;
+  margin: 20px 0;
+  transition: border-color 0.2s ease;
+}
+.bf-empty-state:hover {
+  border-color: #94a3b8;
+}
+.bf-empty-icon {
+  width: 56px;
+  height: 56px;
+  margin: 0 auto 16px;
+  border-radius: 16px;
+  background: #eef2ff;
+  color: #4f46e5;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.bf-empty-icon svg {
+  width: 26px;
+  height: 26px;
+}
+.bf-empty-action:hover {
+  filter: brightness(0.92);
+}
+
+/* Đảm bảo Sidebar điều hướng luôn ở dạng cột đứng (Vertical Column) */
+:where(.sidebar, .bf-rail, .side) :where(nav, .sidebar-nav, .bf-nav, .nav) {
+  display: flex !important;
+  flex-direction: column !important;
+  align-items: stretch !important;
+}
+:where(.sidebar, .bf-rail, .side) :where(nav, .sidebar-nav, .bf-nav, .nav) a {
+  display: flex !important;
+  flex-direction: row !important;
+  align-items: center !important;
+  width: 100% !important;
+}
+
+/* ========================================================
+   CHUẨN HÓA BRAND LOGO & MENU SIDEBAR
+   ======================================================== */
+.bf-logo, .sidebar-logo, :where(.sidebar, .bf-rail, .side) .logo {
+  display: flex !important;
+  align-items: center !important;
+  gap: 12px !important;
+  padding: 22px 20px !important;
+  min-height: 72px !important;
+  text-decoration: none !important;
+}
+
+.bf-logo-mark, .sidebar-logo .logo-icon, :where(.sidebar, .bf-rail, .side) .logo-icon {
+  width: 38px !important;
+  height: 38px !important;
+  min-width: 38px !important;
+  border-radius: 11px !important;
+  background: linear-gradient(135deg, #4f46e5 0%, #6366f1 100%) !important;
+  color: #ffffff !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  box-shadow: 0 4px 12px rgba(79, 70, 229, 0.22) !important;
+  padding: 0 !important;
+  margin: 0 !important;
+  border: none !important;
+  flex-shrink: 0 !important;
+}
+
+.bf-logo-mark svg, .sidebar-logo .logo-icon svg {
+  width: 20px !important;
+  height: 20px !important;
+  stroke: #ffffff !important;
+}
+
+.bf-logo-text, :where(.sidebar, .bf-rail, .side) .bf-logo-text {
+  background: none !important;
+  color: #0f172a !important;
+  font-size: 19px !important;
+  font-weight: 800 !important;
+  letter-spacing: -0.025em !important;
+  padding: 0 !important;
+  margin: 0 !important;
+  border-radius: 0 !important;
+  line-height: 1 !important;
+}
+
+/* ========================================================
+   CHUẨN HÓA MƯỢT MÀ ACTIVE, HOVER, FOCUS (0.15s - 0.2s)
+   ======================================================== */
+:where(.sidebar, .bf-rail, .side) nav a {
+  transition: all 0.18s cubic-bezier(0.4, 0, 0.2, 1) !important;
+  border-radius: 10px !important;
+}
+
+:where(.sidebar, .bf-rail, .side) nav a:hover {
+  background-color: #f1f5f9 !important;
+  color: #4f46e5 !important;
+  transform: translateX(3px) !important;
+}
+
+:where(.sidebar, .bf-rail, .side) nav a.active,
+:where(.sidebar, .bf-rail, .side) nav a[aria-current="page"] {
+  background: #eef2ff !important;
+  color: #4f46e5 !important;
+  font-weight: 700 !important;
+  transform: none !important;
+}
+
+:where(.sidebar, .bf-rail, .side) nav a:hover svg,
+:where(.sidebar, .bf-rail, .side) nav a.active svg {
+  stroke: #4f46e5 !important;
+}

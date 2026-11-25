@@ -10,6 +10,8 @@
 
 
 require_once __DIR__ . '/includes/permissions.php';
+require_once __DIR__ . '/includes/mail.php';
+require_once __DIR__ . '/includes/icons.php';
 
 // ==================================================
 // 1. CHAN TAI KHOAN DA DANG NHAP
@@ -25,6 +27,9 @@ $errors = [];
 
 $fullName = '';
 $email = '';
+$isTeacher = false;
+$expertise = '';
+$bio = '';
 
 const REGISTER_MIN_PASSWORD = 8;
 const REGISTER_MAX_PASSWORD = 72;
@@ -88,6 +93,12 @@ if (is_post()) {
     $confirmPassword = is_string($rawConfirm)
         ? $rawConfirm
         : '';
+
+    $isTeacher = !empty($_POST['register_as_teacher']);
+    $rawExpertise = $_POST['expertise'] ?? '';
+    $rawBio = $_POST['bio'] ?? '';
+    $expertise = is_string($rawExpertise) ? clean_text($rawExpertise) : '';
+    $bio = is_string($rawBio) ? trim($rawBio) : '';
 
     // ==========================================
     // 4.1. GIOI HAN SO LAN THU
@@ -203,6 +214,21 @@ if (is_post()) {
         }
 
         // ======================================
+        // 4.5.1. KIEM TRA THONG TIN DANG KY GIANG VIEN
+        // ======================================
+
+        if ($isTeacher) {
+            if ($expertise === '') {
+                $errors[] = 'Vui lòng nhập chuyên môn giảng dạy của bạn.';
+            } elseif (function_exists('mb_strlen') && mb_strlen($expertise, 'UTF-8') > 255) {
+                $errors[] = 'Chuyên môn giảng dạy không được vượt quá 255 ký tự.';
+            }
+            if ($bio !== '' && function_exists('mb_strlen') && mb_strlen($bio, 'UTF-8') > 2000) {
+                $errors[] = 'Thông tin giới thiệu kinh nghiệm không được vượt quá 2.000 ký tự.';
+            }
+        }
+
+        // ======================================
         // 4.6. KIEM TRA EMAIL TON TAI
         // ======================================
 
@@ -262,12 +288,14 @@ if (is_post()) {
                         full_name,
                         email,
                         password_hash,
-                        role
+                        role,
+                        email_verified_at
                     ) VALUES (
                         :full_name,
                         :email,
                         :password_hash,
-                        :role
+                        :role,
+                        NULL
                     )"
                 );
 
@@ -278,12 +306,59 @@ if (is_post()) {
                     'role' => $role
                 ]);
 
+                $userId = (int) db()->lastInsertId();
+                $token = bin2hex(random_bytes(32));
+                $tokenHash = hash('sha256', $token);
+                $pdo = db();
+                $pdo->prepare(
+                    'DELETE FROM bf_email_verifications WHERE user_id = :user_id'
+                )->execute(['user_id' => $userId]);
+                $pdo->prepare(
+                    'INSERT INTO bf_email_verifications
+                        (user_id, token_hash, expires_at)
+                     VALUES
+                        (:user_id, :token_hash, :expires_at)'
+                )->execute([
+                    'user_id' => $userId,
+                    'token_hash' => $tokenHash,
+                    'expires_at' => date('Y-m-d H:i:s', time() + 86400),
+                ]);
+
+                if ($isTeacher) {
+                    $stmtApp = $pdo->prepare(
+                        'INSERT INTO bf_teacher_applications (user_id, expertise, bio, status)
+                         VALUES (:user_id, :expertise, :bio, "pending")'
+                    );
+                    $stmtApp->execute([
+                        'user_id' => $userId,
+                        'expertise' => $expertise,
+                        'bio' => $bio !== '' ? $bio : null,
+                    ]);
+                }
+
+                $_SESSION['pending_verification_email'] = $email;
+
+                $verifyUrl = app_url(
+                    'verify-email.php?id=' . $userId . '&token=' . rawurlencode($token)
+                );
+                bf_send_mail(
+                    $email,
+                    'Xác minh tài khoản BrightFuture',
+                    "Chào bạn,\n\n"
+                    . "Hãy xác minh email tài khoản trong vòng 24 giờ:\n"
+                    . $verifyUrl . "\n\n"
+                    . "Nếu bạn không đăng ký, hãy bỏ qua email này."
+                );
+
                 // Chuyen sang dang nhap.
                 // Khong tu dong dang nhap sau dang ky.
+                $successNotice = $isTeacher
+                    ? 'Đăng ký tài khoản thành công! Đơn đăng ký giảng viên của bạn đã được gửi tới Ban Quản Trị để phê duyệt. Vui lòng xác minh email trước khi đăng nhập.'
+                    : 'Đăng ký tài khoản thành công! Vui lòng xác minh email trước khi đăng nhập.';
+
                 set_flash(
                     'success',
-                    'Đăng ký tài khoản thành công! ' .
-                    'Vui lòng đăng nhập để tiếp tục.'
+                    $successNotice
                 );
 
                 redirect('login.php');
@@ -346,383 +421,10 @@ $pageTitle = 'Đăng ký tài khoản | ' . APP_NAME;
     >
 
     <title><?= e($pageTitle) ?></title>
-
-    <style>
-        :root {
-            --primary: #4f46e5;
-            --primary-dark: #4338ca;
-            --secondary: #7c3aed;
-            --text: #172033;
-            --muted: #64748b;
-            --border: #e2e8f0;
-            --background: #f8faff;
-        }
-
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
-
-        body {
-            min-height: 100vh;
-            font-family: 'Segoe UI', Arial, sans-serif;
-            background: var(--background);
-            color: var(--text);
-        }
-
-        a {
-            color: inherit;
-            text-decoration: none;
-        }
-
-        button,
-        input {
-            font: inherit;
-        }
-
-        .auth-layout {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            min-height: 100vh;
-        }
-
-        /* ======================================
-           BRAND PANEL
-        ====================================== */
-
-        .brand-panel {
-            position: relative;
-            display: flex;
-            flex-direction: column;
-            justify-content: space-between;
-            padding: 48px 65px;
-            overflow: hidden;
-            color: white;
-            background: linear-gradient(
-                145deg,
-                #312e81 0%,
-                #4f46e5 48%,
-                #7c3aed 100%
-            );
-        }
-
-        .brand-panel::before {
-            content: "";
-            position: absolute;
-            width: 450px;
-            height: 450px;
-            border-radius: 50%;
-            background: rgba(255,255,255,0.07);
-            right: -190px;
-            top: -130px;
-        }
-
-        .brand-panel::after {
-            content: "";
-            position: absolute;
-            width: 340px;
-            height: 340px;
-            border-radius: 50%;
-            background: rgba(255,255,255,0.06);
-            bottom: -160px;
-            left: -130px;
-        }
-
-        .brand-content,
-        .brand-footer {
-            position: relative;
-            z-index: 1;
-        }
-
-        .logo {
-            display: inline-flex;
-            align-items: center;
-            gap: 12px;
-            font-size: 25px;
-            font-weight: 800;
-            letter-spacing: -0.7px;
-        }
-
-        .logo-icon {
-            display: grid;
-            place-items: center;
-            width: 45px;
-            height: 45px;
-            background: rgba(255,255,255,0.18);
-            border: 1px solid rgba(255,255,255,0.22);
-            border-radius: 14px;
-            font-size: 23px;
-        }
-
-        .brand-main {
-            margin-top: 100px;
-            max-width: 510px;
-        }
-
-        .brand-badge {
-            display: inline-block;
-            padding: 9px 16px;
-            border-radius: 30px;
-            font-size: 13px;
-            font-weight: 600;
-            color: #e0e7ff;
-            background: rgba(255,255,255,0.12);
-            margin-bottom: 25px;
-        }
-
-        .brand-main h1 {
-            font-size: clamp(34px, 3.4vw, 53px);
-            line-height: 1.22;
-            letter-spacing: -1.5px;
-            margin-bottom: 23px;
-        }
-
-        .brand-main h1 span {
-            color: #c4b5fd;
-        }
-
-        .brand-main p {
-            font-size: 16px;
-            line-height: 1.9;
-            color: #e0e7ff;
-        }
-
-        .features {
-            display: grid;
-            gap: 18px;
-            margin-top: 42px;
-        }
-
-        .feature {
-            display: flex;
-            align-items: center;
-            gap: 14px;
-            font-size: 15px;
-        }
-
-        .feature-icon {
-            display: grid;
-            place-items: center;
-            width: 43px;
-            height: 43px;
-            flex-shrink: 0;
-            border-radius: 13px;
-            background: rgba(255,255,255,0.13);
-            font-size: 20px;
-        }
-
-        .brand-footer {
-            margin-top: 55px;
-            font-size: 13px;
-            color: #c7d2fe;
-        }
-
-        /* ======================================
-           REGISTER PANEL
-        ====================================== */
-
-        .register-panel {
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            padding: 45px 30px;
-        }
-
-        .register-container {
-            width: 100%;
-            max-width: 440px;
-        }
-
-        .back-home {
-            display: inline-flex;
-            align-items: center;
-            gap: 8px;
-            font-size: 14px;
-            color: var(--muted);
-            margin-bottom: 32px;
-            transition: color .2s;
-        }
-
-        .back-home:hover {
-            color: var(--primary);
-        }
-
-        .register-heading {
-            margin-bottom: 28px;
-        }
-
-        .register-heading h2 {
-            font-size: 32px;
-            font-weight: 800;
-            letter-spacing: -1px;
-            margin-bottom: 10px;
-        }
-
-        .register-heading p {
-            color: var(--muted);
-            font-size: 15px;
-            line-height: 1.6;
-        }
-
-        .form-group {
-            margin-bottom: 19px;
-        }
-
-        .form-label {
-            display: block;
-            margin-bottom: 8px;
-            font-weight: 600;
-            font-size: 14px;
-        }
-
-        .input-wrapper {
-            position: relative;
-        }
-
-        .form-input {
-            width: 100%;
-            height: 52px;
-            padding: 0 16px;
-            border: 1.5px solid var(--border);
-            border-radius: 12px;
-            outline: none;
-            background: white;
-            color: var(--text);
-            transition: all .2s;
-        }
-
-        .form-input::placeholder {
-            color: #94a3b8;
-        }
-
-        .form-input:focus {
-            border-color: var(--primary);
-            box-shadow: 0 0 0 4px rgba(79,70,229,.1);
-        }
-
-        .password-input {
-            padding-right: 80px;
-        }
-
-        .toggle-password {
-            position: absolute;
-            right: 12px;
-            top: 50%;
-            transform: translateY(-50%);
-            border: none;
-            background: transparent;
-            color: var(--primary);
-            font-size: 13px;
-            font-weight: 600;
-            padding: 10px 4px;
-            cursor: pointer;
-        }
-
-        .form-hint {
-            color: var(--muted);
-            font-size: 12px;
-            line-height: 1.5;
-            margin-top: 7px;
-        }
-
-        .submit-btn {
-            width: 100%;
-            height: 55px;
-            margin-top: 7px;
-            border: 0;
-            border-radius: 12px;
-            background: linear-gradient(
-                100deg,
-                var(--primary),
-                var(--secondary)
-            );
-            color: white;
-            font-size: 16px;
-            font-weight: 700;
-            cursor: pointer;
-            transition: transform .2s, box-shadow .2s;
-        }
-
-        .submit-btn:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 10px 24px rgba(79,70,229,.25);
-        }
-
-        .submit-btn:disabled {
-            opacity: .75;
-            cursor: wait;
-        }
-
-        .login-text {
-            margin-top: 27px;
-            text-align: center;
-            color: var(--muted);
-            font-size: 14px;
-        }
-
-        .login-text a {
-            color: var(--primary);
-            font-weight: 700;
-        }
-
-        .login-text a:hover {
-            text-decoration: underline;
-        }
-
-        .alert {
-            padding: 14px 16px;
-            border-radius: 11px;
-            margin-bottom: 23px;
-            font-size: 14px;
-            line-height: 1.65;
-        }
-
-        .alert-error {
-            color: #991b1b;
-            background: #fef2f2;
-            border: 1px solid #fecaca;
-        }
-
-        .alert-error ul {
-            padding-left: 19px;
-        }
-
-        .alert-error li + li {
-            margin-top: 5px;
-        }
-
-        .register-footer {
-            margin-top: 35px;
-            text-align: center;
-            color: #94a3b8;
-            font-size: 12px;
-        }
-
-        @media (max-width: 900px) {
-            .auth-layout {
-                grid-template-columns: 1fr;
-            }
-
-            .brand-panel {
-                display: none;
-            }
-
-            .register-panel {
-                min-height: 100vh;
-            }
-        }
-
-        @media (max-width: 480px) {
-            .register-panel {
-                padding: 30px 22px;
-            }
-
-            .register-heading h2 {
-                font-size: 28px;
-            }
-        }
-    </style>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="css/bf-auth.css">
 </head>
 
 <body>
@@ -741,7 +443,7 @@ $pageTitle = 'Đăng ký tài khoản | ' . APP_NAME;
                 class="logo"
                 href="<?= e(app_url()) ?>"
             >
-                <span class="logo-icon">&lt;/&gt;</span>
+                <span class="logo-icon"><?= bf_icon('code', 'bf-logo-svg') ?></span>
                 <span>BrightFuture</span>
             </a>
 
@@ -769,7 +471,7 @@ $pageTitle = 'Đăng ký tài khoản | ' . APP_NAME;
 
                     <div class="feature">
                         <span class="feature-icon">
-                            &#128218;
+                            <?= bf_icon('book') ?>
                         </span>
                         <span>
                             Khám phá các khóa học lập trình
@@ -778,7 +480,7 @@ $pageTitle = 'Đăng ký tài khoản | ' . APP_NAME;
 
                     <div class="feature">
                         <span class="feature-icon">
-                            &#128187;
+                            <?= bf_icon('laptop') ?>
                         </span>
                         <span>
                             Học tập kết hợp thực hành
@@ -787,7 +489,7 @@ $pageTitle = 'Đăng ký tài khoản | ' . APP_NAME;
 
                     <div class="feature">
                         <span class="feature-icon">
-                            &#127919;
+                            <?= bf_icon('target') ?>
                         </span>
                         <span>
                             Theo dõi hành trình học tập
@@ -1003,6 +705,52 @@ $pageTitle = 'Đăng ký tài khoản | ' . APP_NAME;
 
                     </div>
 
+                </div>
+
+                <!-- DANG KY GIANG VIEN -->
+                <div class="form-group" style="margin-top: 18px; padding: 14px 16px; background: #f8faff; border: 1px solid #e0e7ff; border-radius: 10px;">
+                    <label style="display: flex; align-items: center; gap: 10px; cursor: pointer; font-weight: 600; color: #1e293b; margin: 0;">
+                        <input
+                            type="checkbox"
+                            id="registerAsTeacher"
+                            name="register_as_teacher"
+                            value="1"
+                            <?= $isTeacher ? 'checked' : '' ?>
+                            style="width: 18px; height: 18px; accent-color: #4f46e5; cursor: pointer;"
+                            onchange="document.getElementById('teacherFields').style.display = this.checked ? 'block' : 'none';"
+                        >
+                        <span>Tôi muốn đăng ký tài khoản <strong>Giảng viên</strong> (Cần xét duyệt)</span>
+                    </label>
+
+                    <div id="teacherFields" style="display: <?= $isTeacher ? 'block' : 'none' ?>; margin-top: 14px; padding-top: 12px; border-top: 1px dashed #c7d2fe;">
+                        <div style="margin-bottom: 12px;">
+                            <label for="expertise" class="form-label" style="font-size: 13px;">Lĩnh vực chuyên môn giảng dạy *</label>
+                            <input
+                                id="expertise"
+                                class="form-input"
+                                type="text"
+                                name="expertise"
+                                placeholder="Ví dụ: Lập trình Web Fullstack, AI & Machine Learning, Tiếng Anh..."
+                                value="<?= e($expertise) ?>"
+                                maxlength="255"
+                            >
+                        </div>
+                        <div>
+                            <label for="bio" class="form-label" style="font-size: 13px;">Giới thiệu kinh nghiệm / chứng chỉ chuyên môn</label>
+                            <textarea
+                                id="bio"
+                                class="form-input"
+                                name="bio"
+                                rows="3"
+                                placeholder="Tóm tắt quá trình công tác, giảng dạy hoặc các chứng chỉ liên quan..."
+                                maxlength="2000"
+                                style="resize: vertical; font-family: inherit;"
+                            ><?= e($bio) ?></textarea>
+                        </div>
+                        <p class="form-hint" style="margin-top: 6px; font-size: 12px; color: #6366f1;">
+                            ℹ️ Hồ sơ của bạn sẽ được gửi tới Ban Quản Trị BrightFuture phê duyệt trước khi kích hoạt quyền tạo khóa học.
+                        </p>
+                    </div>
                 </div>
 
                 <!-- SUBMIT -->

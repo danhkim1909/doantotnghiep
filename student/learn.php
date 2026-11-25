@@ -2,6 +2,7 @@
 /** BrightFuture - Student learning page (PHP 8+, MySQL PDO). */
 declare(strict_types=1);
 require_once __DIR__ . '/../includes/course_unlock.php';
+require_once __DIR__ . '/../includes/lesson_media.php';
 
 $user = require_role(ROLE_STUDENT);
 header('Cache-Control: no-store, private, max-age=0');
@@ -42,9 +43,8 @@ if (!can_update_lesson_progress($lessonId)) {
     deny_access(false, 'Bạn cần đăng ký khóa học và bài giảng phải được công khai để học.');
 }
 
-// Progress is written by the video player through api/progress.php.
-// No manual completion action is accepted on this page.
-if (is_post()) { http_response_code(405); exit('Tiến độ được ghi tự động khi học video.'); }
+// Progress updates and non-video completion are handled by api/progress.php.
+if (is_post()) { http_response_code(405); exit('Tiến độ được ghi qua API học tập.'); }
 
 // Only published lessons are visible. A draft must not leak via the sidebar.
 $stmt = $pdo->prepare("SELECT cc.id AS chapter_id, cc.title AS chapter_title, cc.position AS chapter_position, l.id AS lesson_id, l.title AS lesson_title, l.lesson_type, l.duration_minutes, lp.status AS progress_status FROM course_chapters cc JOIN lessons l ON l.chapter_id=cc.id AND l.status='published' LEFT JOIN lesson_progress lp ON lp.lesson_id=l.id AND lp.student_id=:student_id WHERE cc.course_id=:course_id ORDER BY cc.position, cc.id, l.position, l.id");
@@ -83,9 +83,70 @@ $myProgress = $stmt->fetch() ?: ['status' => 'not_started', 'last_position_secon
 $stmt = $pdo->prepare('SELECT title, resource_type, resource_url FROM lesson_resources WHERE lesson_id=:lesson_id ORDER BY id');
 $stmt->execute(['lesson_id' => $lessonId]);
 $resources = $stmt->fetchAll();
-$stmt = $pdo->prepare("SELECT id, title, exercise_type, max_score, deadline FROM exercises WHERE lesson_id=:lesson_id AND status='published' ORDER BY position, id");
+$stmt = $pdo->prepare("SELECT id, title, exercise_type, max_score, deadline, description, starter_code, programming_language, max_attempts FROM exercises WHERE lesson_id=:lesson_id AND status='published' ORDER BY position, id");
 $stmt->execute(['lesson_id' => $lessonId]);
 $exercises = $stmt->fetchAll();
+
+$submissionsByExercise = [];
+if (!empty($exercises)) {
+    $subStmt = $pdo->prepare(
+        "SELECT s.* FROM exercise_submissions s
+         INNER JOIN (
+             SELECT exercise_id, MAX(id) AS max_id
+             FROM exercise_submissions
+             WHERE student_id = :student_id
+             GROUP BY exercise_id
+         ) m ON m.max_id = s.id"
+    );
+    $subStmt->execute(['student_id' => $studentId]);
+    foreach ($subStmt->fetchAll(PDO::FETCH_ASSOC) as $sub) {
+        $submissionsByExercise[(int)$sub['exercise_id']] = $sub;
+    }
+}
+
+$questionsByExercise = [];
+$optionsByQuestion = [];
+$quizExerciseIds = [];
+foreach ($exercises as $exercise) {
+    if ($exercise['exercise_type'] === 'quiz') {
+        $quizExerciseIds[] = (int)$exercise['id'];
+    }
+}
+
+if ($quizExerciseIds) {
+    $exercisePlaceholders = implode(',', array_fill(0, count($quizExerciseIds), '?'));
+    $questionStmt = $pdo->prepare(
+        "SELECT id, exercise_id, question_text, question_type, points
+         FROM exercise_questions
+         WHERE exercise_id IN ({$exercisePlaceholders})
+         ORDER BY exercise_id, position, id"
+    );
+    $questionStmt->execute($quizExerciseIds);
+    $questionIds = [];
+    foreach ($questionStmt->fetchAll(PDO::FETCH_ASSOC) as $question) {
+        $question['id'] = (int)$question['id'];
+        $question['exercise_id'] = (int)$question['exercise_id'];
+        $questionsByExercise[$question['exercise_id']][] = $question;
+        $questionIds[] = $question['id'];
+    }
+
+    if ($questionIds) {
+        $questionIds = array_values(array_unique($questionIds));
+        $questionPlaceholders = implode(',', array_fill(0, count($questionIds), '?'));
+        $optionStmt = $pdo->prepare(
+            "SELECT id, question_id, option_text
+             FROM question_options
+             WHERE question_id IN ({$questionPlaceholders})
+             ORDER BY question_id, position, id"
+        );
+        $optionStmt->execute($questionIds);
+        foreach ($optionStmt->fetchAll(PDO::FETCH_ASSOC) as $option) {
+            $option['id'] = (int)$option['id'];
+            $option['question_id'] = (int)$option['question_id'];
+            $optionsByQuestion[$option['question_id']][] = $option;
+        }
+    }
+}
 
 function safe_resource_url(string $url): ?string {
     $url = trim($url);
@@ -95,29 +156,14 @@ function safe_resource_url(string $url): ?string {
     if (preg_match('~^uploads/lessons/[a-zA-Z0-9/_-]+\.(pdf|txt|docx|pptx|zip|py|js|php|html|css|sql)$~i', $url) && !str_contains($url, '..')) return app_url($url);
     return null;
 }
-function video_source(?string $url): array {
-    $url = trim($url ?? '');
-    if ($url === '' || !filter_var($url, FILTER_VALIDATE_URL)) return ['type' => 'none', 'url' => ''];
-    $parts = parse_url($url);
-    if (($parts['scheme'] ?? '') !== 'https') return ['type' => 'none', 'url' => ''];
-    $host = strtolower($parts['host'] ?? '');
-    $path = $parts['path'] ?? '';
-    $id = null;
-    if (in_array($host, ['youtube.com', 'www.youtube.com', 'm.youtube.com'], true)) {
-        if ($path === '/watch') { parse_str($parts['query'] ?? '', $q); $id = $q['v'] ?? null; }
-        elseif (preg_match('~^/(embed|shorts)/([A-Za-z0-9_-]{11})$~', $path, $m)) $id = $m[2];
-    } elseif ($host === 'youtu.be') {
-        $id = ltrim($path, '/');
+$video = bf_lesson_media_source($lesson);
+$hasVideo = $video['type'] !== 'none';
+$hasPublishedQuiz = false;
+foreach ($exercises as $exercise) {
+    if ($exercise['exercise_type'] === 'quiz') {
+        $hasPublishedQuiz = true;
+        break;
     }
-    if (is_string($id) && preg_match('/^[A-Za-z0-9_-]{11}$/', $id)) {
-        return ['type' => 'youtube', 'url' => 'https://www.youtube-nocookie.com/embed/' . $id];
-    }
-    if (preg_match('~\.mp4$~i', $path)) return ['type' => 'mp4', 'url' => $url];
-    return ['type' => 'none', 'url' => ''];
-}
-$video = video_source($lesson['video_url']);
-if (($lesson['video_source'] ?? '') === 'upload' && !empty($lesson['video_file_path'])) {
-    $video = ['type'=>'mp4','url'=>app_url('api/video.php?lesson_id='.$lessonId)];
 }
 
 $flash = get_flash();
@@ -129,17 +175,22 @@ $pageTitle = $lesson['title'] . ' | ' . APP_NAME;
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title><?= e($pageTitle) ?></title>
-<style>
-:root{--accent:#4f46e5;--dark:#172033;--muted:#64748b;--line:#e5e9f1;--bg:#f6f8fc}
-*{box-sizing:border-box}body{margin:0;font-family:Segoe UI,Arial,sans-serif;background:var(--bg);color:var(--dark)}a{color:inherit;text-decoration:none}button{font:inherit;cursor:pointer}.top{height:70px;background:#fff;border-bottom:1px solid var(--line);display:flex;align-items:center;justify-content:space-between;gap:12px;padding:0 25px;position:sticky;top:0;z-index:15}.logo{font-size:20px;font-weight:800;color:var(--accent)}.top-links{display:flex;gap:15px;align-items:center;font-size:13px}.top-links a:hover{color:var(--accent)}.logout{border:0;background:#fff1f2;color:#be123c;padding:9px 12px;border-radius:8px;font-weight:600}.layout{display:grid;grid-template-columns:295px minmax(0,1fr);min-height:calc(100vh - 70px)}.aside{background:#fff;border-right:1px solid var(--line);padding:20px;overflow:auto}.aside h2{font-size:17px;margin:0 0 12px}.subdued{font-size:13px;color:var(--muted);line-height:1.6}.progress-track{height:8px;background:#e8eaf4;border-radius:9px;overflow:hidden;margin:12px 0 20px}.progress-fill{height:100%;background:linear-gradient(90deg,#4f46e5,#8b5cf6)}.chapter{border-top:1px solid var(--line);padding-top:15px;margin-top:15px}.chapter h3{font-size:13px;margin:0 0 10px}.lesson-link{display:flex;gap:9px;padding:11px 10px;border-radius:9px;font-size:13px;line-height:1.45}.lesson-link:hover{background:#f2f3ff}.lesson-link.active{background:#eef2ff;color:#4338ca;font-weight:700}.lesson-mark{min-width:16px;color:#16a34a}.main{padding:27px;min-width:0;max-width:1160px;width:100%;margin:0 auto}.breadcrumb{font-size:13px;color:var(--muted);margin-bottom:16px}.breadcrumb a{color:var(--accent)}h1{font-size:clamp(23px,2.6vw,32px);margin:0 0 12px;line-height:1.3}.meta{font-size:13px;color:var(--muted);margin-bottom:22px}.card{background:#fff;border:1px solid var(--line);border-radius:15px;padding:24px;margin:19px 0;min-width:0}.card h2{font-size:19px;margin:0 0 17px}.video-frame{width:100%;aspect-ratio:16/9;border:0;border-radius:12px;background:#101629}.lesson-text{line-height:1.85;overflow-wrap:anywhere}.code{background:#111827;color:#e5e7eb;border-radius:11px;padding:18px;white-space:pre;overflow:auto;font:13px/1.7 Consolas,monospace}.pill{display:inline-block;background:#eef2ff;color:#4338ca;padding:6px 10px;border-radius:30px;font-size:12px;font-weight:700}.resource,.exercise{display:flex;align-items:center;justify-content:space-between;gap:14px;padding:12px 0;border-bottom:1px solid var(--line);font-size:14px}.resource:last-child,.exercise:last-child{border-bottom:0}.resource a,.exercise a{color:var(--accent);font-weight:700}.actions{display:flex;gap:10px;align-items:center;justify-content:space-between;flex-wrap:wrap}.btn{background:#4f46e5;color:#fff;border:0;border-radius:10px;padding:12px 16px;font-weight:700;font-size:13px;display:inline-block}.btn-light{background:#eef2ff;color:#4338ca}.btn:disabled{opacity:.55;cursor:default}.alert{padding:13px 16px;border-radius:10px;background:#f0fdf4;color:#166534;margin-bottom:18px}.mobile-toggle{display:none}.sidebar-shade{display:none}.completed-label{color:#15803d;font-weight:700;font-size:13px}@media(max-width:850px){.layout{display:block}.aside{position:fixed;top:70px;bottom:0;left:0;width:min(320px,90vw);z-index:12;transform:translateX(-100%);transition:transform .2s}.aside.open{transform:translateX(0)}.sidebar-shade.open{display:block;position:fixed;inset:70px 0 0;background:#0f172a77;z-index:11}.mobile-toggle{display:inline-block;border:0;background:#eef2ff;border-radius:8px;padding:9px;color:#4338ca}.main{padding:20px}.top{padding:0 15px}.top-links span{display:none}}@media(max-width:500px){.card{padding:16px}.top-links{gap:9px}.top-links>a{display:none}.resource,.exercise{align-items:flex-start;flex-direction:column}}
-</style>
-
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="<?= e(app_url('css/tokens.css')) ?>">
+<link rel="stylesheet" href="<?= e(app_url('css/bf-student-learn.css')) ?>">
+<link rel="stylesheet" href="<?= e(app_url('css/bf-toast.css')) ?>">
 <link rel="stylesheet" href="<?= e(app_url('css/bf-ux-refresh.css')) ?>">
+<link rel="stylesheet" href="<?= e(app_url('css/bf-design-system.css')) ?>">
+<link rel="stylesheet" href="<?= e(app_url('css/bf-toast.css')) ?>">
+<link rel="stylesheet" href="<?= e(app_url('css/bf-ux-refresh.css')) ?>">
+<link rel="stylesheet" href="<?= e(app_url('css/bf-design-system.css')) ?>">
 </head>
 <body>
 <header class="top">
   <div style="display:flex;align-items:center;gap:12px"><button class="mobile-toggle" id="menuBtn" type="button" aria-controls="lessonsNav" aria-expanded="false">☰</button><a class="logo" href="<?= e(app_url()) ?>">&lt;/&gt; BrightFuture</a></div>
-  <div class="top-links"><a href="<?= e(app_url('social.php')) ?>">Tin nhắn</a><a href="<?= e(app_url('rooms.php')) ?>">Phòng gọi</a><a href="<?= e(app_url('student/dashboard.php')) ?>">Tổng quan</a><a href="<?= e(app_url('student/my-courses.php')) ?>">Khóa học của tôi</a><span><?= e($user['full_name']) ?></span><form method="post" action="<?= e(app_url('logout.php')) ?>"><?= csrf_field() ?><button class="logout" type="submit">Đăng xuất</button></form></div>
+  <div class="top-links"><button type="button" id="focusModeBtn" class="btn btn-light" style="padding:6px 12px;font-size:12px;display:inline-flex;align-items:center;gap:6px;border:1px solid #c7d2fe;cursor:pointer;"><span>🖥️</span> <span>Chế độ tập trung</span></button><a href="<?= e(app_url('social.php')) ?>">Tin nhắn</a><a href="<?= e(app_url('rooms.php')) ?>">Phòng gọi</a><a href="<?= e(app_url('student/dashboard.php')) ?>">Tổng quan</a><a href="<?= e(app_url('student/my-courses.php')) ?>">Khóa học của tôi</a><span><?= e($user['full_name']) ?></span><form method="post" action="<?= e(app_url('logout.php')) ?>"><?= csrf_field() ?><button class="logout" type="submit">Đăng xuất</button></form></div>
 </header>
 <div class="sidebar-shade" id="shade"></div>
 <div class="layout">
@@ -170,6 +221,14 @@ $pageTitle = $lesson['title'] . ' | ' . APP_NAME;
   </section>
   <?php endif; ?>
   <section class="card"><h2>Trao đổi bài học</h2><p class="subdued">Có câu hỏi về bài giảng? Thảo luận cùng học viên và giáo viên.</p><a class="btn btn-light" href="<?= e(app_url('discussions.php?lesson=' . $lessonId)) ?>">Mở thảo luận bài học →</a></section>
+  <section class="card" id="bf-notes-card">
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:10px;flex-wrap:wrap">
+      <h2 style="margin:0">📝 Ghi chú cá nhân</h2>
+      <span id="bf-note-status" class="subdued" style="font-size:12px;font-weight:600">Đang tải...</span>
+    </div>
+    <p class="subdued" style="margin-top:0;margin-bottom:12px">Ghi lại ý chính, công thức hoặc đoạn mã quan trọng. Tự động lưu hoặc nhấn <kbd style="background:#f1f5f9;border:1px solid #cbd5e1;border-radius:4px;padding:2px 5px;font-size:11px;font-weight:600">Ctrl + S</kbd> để lưu ngay.</p>
+    <textarea id="bf-note-input" rows="4" style="width:100%;border:1px solid #d9e0ec;border-radius:10px;padding:12px;font:inherit;resize:vertical;outline:0;box-sizing:border-box" placeholder="Nhập ghi chú của bạn cho bài giảng này..."></textarea>
+  </section>
   <?php if (trim((string)($lesson['content'] ?? '')) !== ''): ?>
   <section class="card"><h2>Nội dung bài học</h2><div class="lesson-text"><?= nl2br(e($lesson['content'])) ?></div></section>
   <?php endif; ?>
@@ -185,18 +244,26 @@ $pageTitle = $lesson['title'] . ' | ' . APP_NAME;
   <?php endif; ?>
   <?php if ($exercises): ?>
     <section class="card" id="bai-tap-bai-hoc"><h2>📝 Trắc nghiệm và bài tập ngay sau bài học</h2>
-    <p class="subdued">Giảng viên tạo bài trắc nghiệm theo từng bài giảng. Bài trắc nghiệm 10 câu được chấm tự động. Sai tối đa 5 câu mới hoàn thành; sai từ 6 câu phải xem lại video rồi làm lại.</p>
-    <?php foreach ($exercises as $ex): ?>
+    <p class="subdued">Giảng viên tạo bài trắc nghiệm theo từng bài giảng. Bài trắc nghiệm được chấm tự động (đạt từ 50% số câu trở lên mới hoàn thành; nếu chưa đạt cần xem lại video rồi làm lại).</p>
+    <?php foreach ($exercises as $ex): $sub = $submissionsByExercise[(int)$ex['id']] ?? null; ?>
       <?php if ($ex['exercise_type'] === 'quiz'): ?>
-      <?php
-        $q = $pdo->prepare('SELECT id, question_text, question_type, points FROM exercise_questions WHERE exercise_id = ? ORDER BY position,id');
-        $q->execute([(int)$ex['id']]);$qs=$q->fetchAll();
-        $opt=$pdo->prepare('SELECT id, option_text FROM question_options WHERE question_id = ? ORDER BY position,id');
-      ?>
-      <div class="bf-quiz" style="border:1px solid #e1e7f2;border-radius:12px;padding:18px;margin:16px 0">
-       <h3><?= e($ex['title']) ?> <small class="subdued">(Tối đa <?= e((string)$ex['max_score']) ?> điểm)</small></h3>
-       <form class="bf-inline-quiz" data-exercise-id="<?= (int)$ex['id'] ?>">
-        <?php foreach ($qs as $qi=>$question): $opt->execute([(int)$question['id']]);$options=$opt->fetchAll(); ?>
+      <div class="bf-quiz" id="exercise-<?= (int)$ex['id'] ?>" style="border:1px solid #e1e7f2;border-radius:12px;padding:18px;margin:16px 0">
+       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+         <h3 style="margin:0"><?= e($ex['title']) ?> <small class="subdued">(Tối đa <?= e((string)$ex['max_score']) ?> điểm)</small></h3>
+         <?php if ($sub): ?>
+           <span style="font-size:12px;font-weight:700;padding:4px 10px;border-radius:20px;background:<?= $sub['status']==='graded'?'#dcfce7':'#fef3c7' ?>;color:<?= $sub['status']==='graded'?'#166534':'#92400e' ?>">
+             <?= $sub['status']==='graded' ? '✓ Đã hoàn thành (Điểm: ' . e((string)$sub['score']) . ')' : 'Đã nộp bài' ?>
+           </span>
+         <?php endif; ?>
+       </div>
+       <?php if ((!$sub || $sub['status'] !== 'graded') && !empty($questionsByExercise[(int)$ex['id']])): ?>
+       <div class="bf-quiz-timer" data-timer-for="form-quiz-<?= (int)$ex['id'] ?>" style="display:inline-flex;align-items:center;gap:8px;padding:6px 14px;background:#fef3c7;border:1px solid #fde68a;border-radius:20px;color:#92400e;font-size:13px;font-weight:600;margin-bottom:12px">
+         <span>⏱️ Thời gian làm bài:</span>
+         <strong class="bf-timer-clock" data-minutes="10" style="font-variant-numeric:tabular-nums;font-size:14px;color:#b45309">10:00</strong>
+       </div>
+       <?php endif; ?>
+       <form class="bf-inline-quiz" id="form-quiz-<?= (int)$ex['id'] ?>" data-exercise-id="<?= (int)$ex['id'] ?>">
+        <?php foreach (($questionsByExercise[(int)$ex['id']] ?? []) as $qi=>$question): $options = $optionsByQuestion[(int)$question['id']] ?? []; ?>
          <fieldset style="border:0;border-top:1px solid #e5e7eb;margin-top:12px;padding:12px 0">
            <legend style="font-weight:700">Câu <?= $qi+1 ?>: <?= e($question['question_text']) ?></legend>
            <?php foreach ($options as $option): ?>
@@ -209,19 +276,99 @@ $pageTitle = $lesson['title'] . ' | ' . APP_NAME;
            <?php endforeach; ?>
          </fieldset>
         <?php endforeach; ?>
-        <?php if($qs): ?><button class="btn" type="submit">Nộp trắc nghiệm</button><?php else: ?><p class="subdued">Giảng viên chưa thêm câu hỏi.</p><?php endif; ?>
+        <?php if(!empty($questionsByExercise[(int)$ex['id']])): ?><button class="btn" type="submit">Nộp trắc nghiệm</button><?php else: ?><p class="subdued">Giảng viên chưa thêm câu hỏi.</p><?php endif; ?>
         <div class="bf-quiz-status" role="status" aria-live="polite" style="margin-top:12px"></div>
        </form>
       </div>
-      <?php else: ?>
-      <div class="exercise"><span><strong><?= e($ex['title']) ?></strong> · <?= e($ex['exercise_type']) ?></span><a href="<?= e(exercise_url((int)$ex['id'])) ?>">Làm bài →</a></div>
+      <?php elseif ($ex['exercise_type'] === 'coding'): ?>
+      <div class="bf-exercise-item" id="exercise-<?= (int)$ex['id'] ?>" style="border:1px solid #e1e7f2;border-radius:12px;padding:18px;margin:16px 0">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+          <h3 style="margin:0"><?= e($ex['title']) ?> <small class="subdued">(Lập trình · Tối đa <?= e((string)$ex['max_score']) ?>đ)</small></h3>
+          <?php if ($sub): ?>
+            <span style="font-size:12px;font-weight:700;padding:4px 10px;border-radius:20px;background:<?= $sub['status']==='graded'?'#dcfce7':'#eff6ff' ?>;color:<?= $sub['status']==='graded'?'#166534':'#1d4ed8' ?>">
+              <?= $sub['status']==='graded' ? 'Đã chấm: ' . e((string)$sub['score']) . 'đ' : 'Chờ chấm' ?>
+            </span>
+          <?php endif; ?>
+        </div>
+        <?php if (!empty($ex['description'])): ?><div class="subdued" style="margin-bottom:12px;line-height:1.6"><?= nl2br(e($ex['description'])) ?></div><?php endif; ?>
+        <form class="bf-inline-code-form" data-exercise-id="<?= (int)$ex['id'] ?>">
+          <label style="display:block;font-weight:600;font-size:13px;margin-bottom:6px">Mã nguồn của bạn<?= !empty($ex['programming_language']) ? ' (' . e($ex['programming_language']) . ')' : '' ?>:</label>
+          <textarea style="width:100%;min-height:140px;padding:12px;background:#111827;color:#e5e7eb;border-radius:8px;font:13px/1.6 Consolas,monospace;box-sizing:border-box" name="submitted_code" placeholder="// Viết code tại đây..."><?= e($sub['submitted_code'] ?? $ex['starter_code'] ?? '') ?></textarea>
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-top:10px;flex-wrap:wrap;gap:8px">
+            <button class="btn" type="submit">Nộp bài lập trình</button>
+            <span class="bf-code-status subdued" role="status"></span>
+          </div>
+        </form>
+        <?php if (!empty($sub['feedback'])): ?>
+          <div style="background:#f8fafc;border-left:3px solid #4f46e5;padding:10px 14px;border-radius:4px;margin-top:12px;font-size:13px">
+            <strong>Nhận xét từ giảng viên:</strong> <?= e($sub['feedback']) ?>
+          </div>
+        <?php endif; ?>
+      </div>
+      <?php elseif ($ex['exercise_type'] === 'text'): ?>
+      <div class="bf-exercise-item" id="exercise-<?= (int)$ex['id'] ?>" style="border:1px solid #e1e7f2;border-radius:12px;padding:18px;margin:16px 0">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+          <h3 style="margin:0"><?= e($ex['title']) ?> <small class="subdued">(Tự luận · Tối đa <?= e((string)$ex['max_score']) ?>đ)</small></h3>
+          <?php if ($sub): ?>
+            <span style="font-size:12px;font-weight:700;padding:4px 10px;border-radius:20px;background:<?= $sub['status']==='graded'?'#dcfce7':'#eff6ff' ?>;color:<?= $sub['status']==='graded'?'#166534':'#1d4ed8' ?>">
+              <?= $sub['status']==='graded' ? 'Đã chấm: ' . e((string)$sub['score']) . 'đ' : 'Chờ chấm' ?>
+            </span>
+          <?php endif; ?>
+        </div>
+        <?php if (!empty($ex['description'])): ?><div class="subdued" style="margin-bottom:12px;line-height:1.6"><?= nl2br(e($ex['description'])) ?></div><?php endif; ?>
+        <form class="bf-inline-text-form" data-exercise-id="<?= (int)$ex['id'] ?>">
+          <textarea style="width:100%;min-height:110px;padding:12px;border:1px solid #e2e8f0;border-radius:8px;box-sizing:border-box" name="submitted_text" placeholder="Nhập câu trả lời của bạn..."><?= e($sub['submitted_text'] ?? '') ?></textarea>
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-top:10px;flex-wrap:wrap;gap:8px">
+            <button class="btn" type="submit">Nộp câu trả lời</button>
+            <span class="bf-text-status subdued" role="status"></span>
+          </div>
+        </form>
+        <?php if (!empty($sub['feedback'])): ?>
+          <div style="background:#f8fafc;border-left:3px solid #4f46e5;padding:10px 14px;border-radius:4px;margin-top:12px;font-size:13px">
+            <strong>Nhận xét từ giảng viên:</strong> <?= e($sub['feedback']) ?>
+          </div>
+        <?php endif; ?>
+      </div>
+      <?php elseif ($ex['exercise_type'] === 'file_upload'): ?>
+      <div class="bf-exercise-item" id="exercise-<?= (int)$ex['id'] ?>" style="border:1px solid #e1e7f2;border-radius:12px;padding:18px;margin:16px 0">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+          <h3 style="margin:0"><?= e($ex['title']) ?> <small class="subdued">(Nộp tệp · Tối đa <?= e((string)$ex['max_score']) ?>đ)</small></h3>
+          <?php if ($sub): ?>
+            <span style="font-size:12px;font-weight:700;padding:4px 10px;border-radius:20px;background:<?= $sub['status']==='graded'?'#dcfce7':'#eff6ff' ?>;color:<?= $sub['status']==='graded'?'#166534':'#1d4ed8' ?>">
+              <?= $sub['status']==='graded' ? 'Đã chấm: ' . e((string)$sub['score']) . 'đ' : 'Chờ chấm' ?>
+            </span>
+          <?php endif; ?>
+        </div>
+        <?php if (!empty($ex['description'])): ?><div class="subdued" style="margin-bottom:12px;line-height:1.6"><?= nl2br(e($ex['description'])) ?></div><?php endif; ?>
+        <form class="bf-inline-file-form" data-exercise-id="<?= (int)$ex['id'] ?>" enctype="multipart/form-data">
+          <input type="file" name="file" accept=".pdf,.zip,.png,.jpg,.jpeg,.docx,.txt" required style="margin-bottom:10px;font-size:13px;display:block">
+          <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
+            <button class="btn" type="submit">Nộp tệp bài làm</button>
+            <span class="bf-file-status subdued" role="status"></span>
+          </div>
+        </form>
+        <?php if (!empty($sub['file_path'])): ?>
+          <p style="margin-top:10px;font-size:12px">
+            📎 Tệp đã nộp gần nhất: <a href="<?= e(app_url('api/submissions.php?action=download&id=' . (int)$sub['id'])) ?>">Tải về xem lại</a>
+          </p>
+        <?php endif; ?>
+        <?php if (!empty($sub['feedback'])): ?>
+          <div style="background:#f8fafc;border-left:3px solid #4f46e5;padding:10px 14px;border-radius:4px;margin-top:12px;font-size:13px">
+            <strong>Nhận xét từ giảng viên:</strong> <?= e($sub['feedback']) ?>
+          </div>
+        <?php endif; ?>
+      </div>
       <?php endif; ?>
     <?php endforeach; ?>
     </section>
   <?php endif; ?>
-  <section class="card"><h2>Tiến độ tự động</h2>
-   <?php if($myProgress['status']==='completed'): ?><p class="completed-label">✓ Đã hoàn thành bài học (video và bài kiểm tra đạt yêu cầu).</p>
-   <?php else: ?><p class="subdued">Video được ghi nhận tự động. Nếu có bài trắc nghiệm, bạn phải trả lời đúng ít nhất 5/10 câu để hoàn thành.</p><?php endif; ?>
+  <section class="card"><h2>Tiến độ học tập</h2>
+   <?php if($myProgress['status']==='completed'): ?><p class="completed-label">Đã hoàn thành bài học.</p>
+   <?php elseif($hasVideo): ?><p class="subdued">Video được ghi nhận tự động. Nếu có bài trắc nghiệm, bạn phải đạt các bài trắc nghiệm để hoàn thành bài học.</p>
+   <?php elseif($hasPublishedQuiz): ?><p class="subdued">Hãy học nội dung bài và đạt các bài trắc nghiệm để hoàn thành.</p>
+   <?php else: ?><p class="subdued">Khi đã học xong nội dung, bạn có thể đánh dấu bài học là hoàn thành.</p>
+    <button class="btn" type="button" id="markLessonComplete">Đánh dấu đã học xong</button>
+   <?php endif; ?>
    <?= csrf_field() ?>
    <p id="bf-progress-status" class="subdued" aria-live="polite"></p>
   </section>
@@ -232,12 +379,13 @@ $pageTitle = $lesson['title'] . ' | ' . APP_NAME;
 </main>
 </div>
 <script>
-// Automatic progress for MP4 and YouTube. A manual completed checkbox is intentionally absent.
+// Video progress is automatic; text-only lessons can be completed explicitly.
 const bfLessonId=<?= (int)$lessonId ?>;
 const bfProgressApi=<?= json_encode(app_url('api/progress.php'),JSON_UNESCAPED_SLASHES|JSON_UNESCAPED_UNICODE) ?>;
 const bfSubmissionApi=<?= json_encode(app_url('api/submissions.php'),JSON_UNESCAPED_SLASHES|JSON_UNESCAPED_UNICODE) ?>;
 const bfCsrf=document.querySelector('input[name="csrf_token"]')?.value || '';
 const bfProgressStatus=document.getElementById('bf-progress-status');
+const bfMarkLessonComplete=document.getElementById('markLessonComplete');
 let bfLastSaved=-1,bfCompleted=false;
 let bfProgressQueue=Promise.resolve();
 // Serialize requests: near the 90% mark, the final position must be persisted
@@ -265,6 +413,20 @@ function bfSaveProgress(action,seconds=0,duration=0){
  };
  bfProgressQueue=bfProgressQueue.then(task,task);
  return bfProgressQueue;
+}
+if(bfMarkLessonComplete){
+ bfMarkLessonComplete.addEventListener('click',async()=>{
+   bfMarkLessonComplete.disabled=true;
+   bfMarkLessonComplete.textContent='Đang lưu...';
+   const saved=await bfSaveProgress('complete');
+   if(saved&&bfCompleted){
+     bfProgressStatus.textContent='Đã hoàn thành bài học.';
+     setTimeout(()=>window.location.reload(),500);
+     return;
+   }
+   bfMarkLessonComplete.disabled=false;
+   bfMarkLessonComplete.textContent='Đánh dấu đã học xong';
+ });
 }
 async function bfRestorePosition(seek){try{const r=await fetch(bfProgressApi+'?lesson_id='+bfLessonId,{credentials:'same-origin'});if(!r.ok)return;const j=await r.json();const p=j?.data?.progress ?? j?.data;
  const seconds=Number(p?.last_position_seconds??0);bfCompleted=p?.status==='completed';if(seconds>0&&seconds<86400){bfLastSaved=Math.max(0,seconds-1);seek(seconds);}}
@@ -297,9 +459,53 @@ if(document.getElementById('youtube-player')){
  }}})};
  setInterval(()=>{try{if(ytPlayer&&ytPlayer.getPlayerState()===YT.PlayerState.PLAYING)bfUpdatePlayback(ytPlayer.getCurrentTime(),ytPlayer.getDuration())}catch(_){}},15000);
 }
+// Quản lý đồng hồ đếm ngược Quiz Timer
+const bfQuizTimers = new Map();
+document.querySelectorAll('.bf-quiz-timer').forEach(timerBox => {
+  const clockEl = timerBox.querySelector('.bf-timer-clock');
+  const formId = timerBox.dataset.timerFor;
+  const form = document.getElementById(formId);
+  if (!clockEl || !form) return;
+
+  const totalMinutes = parseInt(clockEl.dataset.minutes || '10', 10);
+  let remainingSeconds = totalMinutes * 60;
+
+  const timerInterval = setInterval(() => {
+    remainingSeconds--;
+    if (remainingSeconds <= 0) {
+      clearInterval(timerInterval);
+      clockEl.textContent = '00:00 (Hết giờ)';
+      timerBox.style.background = '#fee2e2';
+      timerBox.style.borderColor = '#fca5a5';
+      clockEl.style.color = '#dc2626';
+
+      const status = form.querySelector('.bf-quiz-status');
+      if (status) {
+        status.textContent = '⏳ Đã hết thời gian làm bài! Đang tự động gửi kết quả...';
+      }
+      form.requestSubmit();
+      return;
+    }
+
+    const mins = Math.floor(remainingSeconds / 60);
+    const secs = remainingSeconds % 60;
+    clockEl.textContent = `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
+
+    if (remainingSeconds <= 60) {
+      timerBox.style.background = '#fee2e2';
+      timerBox.style.borderColor = '#fca5a5';
+      clockEl.style.color = '#dc2626';
+    }
+  }, 1000);
+
+  bfQuizTimers.set(form, timerInterval);
+});
+
 // Quiz is submitted in place; the API owns validation, attempt limits and grading state.
 document.querySelectorAll('.bf-inline-quiz').forEach(form=>form.addEventListener('submit',async ev=>{
- ev.preventDefault();const btn=form.querySelector('button[type=submit]');const status=form.querySelector('.bf-quiz-status');const answers={};
+ ev.preventDefault();
+ if(bfQuizTimers.has(form)) clearInterval(bfQuizTimers.get(form));
+ const btn=form.querySelector('button[type=submit]');const status=form.querySelector('.bf-quiz-status');const answers={};
  form.querySelectorAll('input[data-qid]').forEach(el=>{const id=el.dataset.qid;if(!(id in answers))answers[id]=[];if(el.checked)answers[id].push(Number(el.value));});
  if(Object.values(answers).some(a=>!a.length)){status.textContent='Vui lòng trả lời đầy đủ câu hỏi.';return;}
  const payload={action:'submit',exercise_id:Number(form.dataset.exerciseId),answers};btn.disabled=true;status.textContent='Đang kiểm tra tiến độ video...';
@@ -310,12 +516,14 @@ document.querySelectorAll('.bf-inline-quiz').forEach(form=>form.addEventListener
    status.textContent='Đang nộp bài...';
    const r=await fetch(bfSubmissionApi,{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json','X-CSRF-Token':bfCsrf},body:JSON.stringify(payload)});const data=await r.json();
  if(r.ok && data?.data?.passed===true){
-   status.textContent='✓ Đạt: đúng '+data.data.correct+'/10 câu, sai '+data.data.wrong+' câu. Bài học đã hoàn thành.';
+   const totalQ = data?.data?.total || ((data?.data?.correct || 0) + (data?.data?.wrong || 0)) || 10;
+    status.textContent='✓ Đạt: đúng '+data.data.correct+'/'+totalQ+' câu, sai '+data.data.wrong+' câu. Bài học đã hoàn thành.';
    btn.disabled=true;
    if(bfProgressStatus)bfProgressStatus.textContent='✓ Đã hoàn thành bài học (video và trắc nghiệm).';
    setTimeout(()=>window.location.reload(),1200);
  }else if(r.ok && data?.data?.passed===false){
-   status.textContent='Chưa đạt: sai '+data.data.wrong+'/10 câu (được sai tối đa 5). Bạn cần học lại video trước khi làm lại.';
+   const totalQ = data?.data?.total || ((data?.data?.correct || 0) + (data?.data?.wrong || 0)) || 10;
+    status.textContent='Chưa đạt: đúng '+(data?.data?.correct || 0)+'/'+totalQ+' câu (cần đúng từ 50%). Bạn cần học lại video trước khi làm lại.';
    bfCompleted=false;bfLastSaved=-1;btn.disabled=false;
    if(bfMp4){bfMp4.pause();bfMp4.currentTime=0;}
    if(typeof ytPlayer!=='undefined' && ytPlayer){try{ytPlayer.pauseVideo();ytPlayer.seekTo(0,true);}catch(_){}}
@@ -326,10 +534,226 @@ document.querySelectorAll('.bf-inline-quiz').forEach(form=>form.addEventListener
  }
  }catch(_){status.textContent='Không kết nối được máy chủ. Vui lòng thử lại.';btn.disabled=false;}
 }));
+// Xử lý nộp bài tập lập trình
+document.querySelectorAll('.bf-inline-code-form').forEach(form=>form.addEventListener('submit',async ev=>{
+  ev.preventDefault();
+  const btn=form.querySelector('button[type=submit]');
+  const status=form.querySelector('.bf-code-status');
+  const code=form.querySelector('textarea[name=submitted_code]').value;
+  if(!code.trim()){status.textContent='Vui lòng nhập mã nguồn trước khi nộp.';return;}
+  btn.disabled=true;status.textContent='Đang nộp bài...';
+  try{
+    const r=await fetch(bfSubmissionApi,{
+      method:'POST',
+      credentials:'same-origin',
+      headers:{'Content-Type':'application/json','X-CSRF-Token':bfCsrf},
+      body:JSON.stringify({action:'submit',exercise_id:Number(form.dataset.exerciseId),submitted_code:code})
+    });
+    const data=await r.json();
+    if(r.ok){
+      status.textContent='✓ '+(data.message||'Đã nộp bài lập trình thành công! Đang chờ giảng viên chấm.');
+      setTimeout(()=>window.location.reload(),1200);
+    }else{
+      status.textContent=data.message||'Nộp bài không thành công.';
+      btn.disabled=false;
+    }
+  }catch(_){status.textContent='Lỗi kết nối máy chủ.';btn.disabled=false;}
+}));
+
+// Xử lý nộp bài tập tự luận
+document.querySelectorAll('.bf-inline-text-form').forEach(form=>form.addEventListener('submit',async ev=>{
+  ev.preventDefault();
+  const btn=form.querySelector('button[type=submit]');
+  const status=form.querySelector('.bf-text-status');
+  const text=form.querySelector('textarea[name=submitted_text]').value;
+  if(!text.trim()){status.textContent='Vui lòng nhập nội dung câu trả lời.';return;}
+  btn.disabled=true;status.textContent='Đang nộp bài...';
+  try{
+    const r=await fetch(bfSubmissionApi,{
+      method:'POST',
+      credentials:'same-origin',
+      headers:{'Content-Type':'application/json','X-CSRF-Token':bfCsrf},
+      body:JSON.stringify({action:'submit',exercise_id:Number(form.dataset.exerciseId),submitted_text:text})
+    });
+    const data=await r.json();
+    if(r.ok){
+      status.textContent='✓ '+(data.message||'Đã nộp câu trả lời thành công! Đang chờ giảng viên chấm.');
+      setTimeout(()=>window.location.reload(),1200);
+    }else{
+      status.textContent=data.message||'Nộp bài không thành công.';
+      btn.disabled=false;
+    }
+  }catch(_){status.textContent='Lỗi kết nối máy chủ.';btn.disabled=false;}
+}));
+
+// Xử lý nộp bài tập đính kèm tệp
+document.querySelectorAll('.bf-inline-file-form').forEach(form=>form.addEventListener('submit',async ev=>{
+  ev.preventDefault();
+  const btn=form.querySelector('button[type=submit]');
+  const status=form.querySelector('.bf-file-status');
+  const fileInput=form.querySelector('input[type=file]');
+  if(!fileInput.files.length){status.textContent='Vui lòng chọn tệp để nộp.';return;}
+  btn.disabled=true;status.textContent='Đang tải tệp lên...';
+  try{
+    const fd=new FormData();
+    fd.append('action','submit');
+    fd.append('exercise_id',form.dataset.exerciseId);
+    fd.append('csrf_token',bfCsrf);
+    fd.append('file',fileInput.files[0]);
+    const r=await fetch(bfSubmissionApi,{
+      method:'POST',
+      credentials:'same-origin',
+      body:fd
+    });
+    const data=await r.json();
+    if(r.ok){
+      status.textContent='✓ '+(data.message||'Đã nộp tệp bài làm thành công! Đang chờ giảng viên chấm.');
+      setTimeout(()=>window.location.reload(),1200);
+    }else{
+      status.textContent=data.message||'Tải tệp không thành công.';
+      btn.disabled=false;
+    }
+  }catch(_){status.textContent='Lỗi kết nối máy chủ.';btn.disabled=false;}
+}));
+
 const btn=document.getElementById('menuBtn');const aside=document.getElementById('lessonsNav');const shade=document.getElementById('shade');
 function closeMenu(){aside.classList.remove('open');shade.classList.remove('open');btn.setAttribute('aria-expanded','false')}
 btn.addEventListener('click',()=>{const open=!aside.classList.contains('open');aside.classList.toggle('open',open);shade.classList.toggle('open',open);btn.setAttribute('aria-expanded',String(open))});shade.addEventListener('click',closeMenu);document.addEventListener('keydown',e=>{if(e.key==='Escape')closeMenu()});
+
+// Ghi chú cá nhân (Student Notes) với tự động lưu debounce
+const bfNotesApi = <?= json_encode(app_url('api/notes.php'), JSON_UNESCAPED_SLASHES|JSON_UNESCAPED_UNICODE) ?>;
+const bfNoteInput = document.getElementById('bf-note-input');
+const bfNoteStatus = document.getElementById('bf-note-status');
+let bfNoteDebounce = null;
+
+async function bfLoadNote() {
+  if (!bfNoteInput) return;
+  try {
+    const res = await fetch(`${bfNotesApi}?lesson_id=${bfLessonId}`, { credentials: 'same-origin' });
+    const json = await res.json();
+    if (json.success && json.note) {
+      bfNoteInput.value = json.note.content || '';
+      bfNoteStatus.textContent = json.note.updated_at ? `Đã lưu: ${json.note.updated_at}` : 'Chưa có ghi chú';
+    }
+  } catch (_) {
+    bfNoteStatus.textContent = 'Không tải được ghi chú';
+  }
+}
+bfLoadNote();
+
+async function bfSaveNoteNow() {
+  if (!bfNoteInput) return;
+  bfNoteStatus.textContent = 'Đang lưu...';
+  try {
+    const res = await fetch(bfNotesApi, {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': bfCsrf },
+      body: JSON.stringify({ lesson_id: bfLessonId, content: bfNoteInput.value })
+    });
+    const json = await res.json();
+    if (json.success) {
+      bfNoteStatus.textContent = `✓ Đã lưu lúc ${json.updated_at}`;
+    } else {
+      bfNoteStatus.textContent = json.message || 'Lỗi khi lưu';
+    }
+  } catch (_) {
+    bfNoteStatus.textContent = 'Lỗi kết nối máy chủ';
+  }
+}
+
+if (bfNoteInput) {
+  bfNoteInput.addEventListener('input', () => {
+    bfNoteStatus.textContent = 'Đang nhập...';
+    clearTimeout(bfNoteDebounce);
+    bfNoteDebounce = setTimeout(bfSaveNoteNow, 1200);
+  });
+
+  // Phím tắt Ctrl + S hoặc Cmd + S lưu ghi chú tức thì
+  document.addEventListener('keydown', (e) => {
+    if ((e.ctrlKey || e.metaKey) && (e.key === 's' || e.key === 'S')) {
+      e.preventDefault();
+      clearTimeout(bfNoteDebounce);
+      bfSaveNoteNow();
+    }
+  });
+}
+
+// Phím tắt điều khiển: Space (Dừng/Phát video), Alt+Mũi tên (Chuyển bài)
+document.addEventListener('keydown', (e) => {
+  const isEditing = ['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement?.tagName);
+  if (!isEditing && e.code === 'Space') {
+    if (bfMp4) {
+      e.preventDefault();
+      bfMp4.paused ? bfMp4.play() : bfMp4.pause();
+    } else if (typeof ytPlayer !== 'undefined' && ytPlayer && typeof ytPlayer.getPlayerState === 'function') {
+      e.preventDefault();
+      ytPlayer.getPlayerState() === YT.PlayerState.PLAYING ? ytPlayer.pauseVideo() : ytPlayer.playVideo();
+    }
+  }
+  if (e.altKey && e.key === 'ArrowRight') {
+    const nextLink = document.querySelector('.actions a.btn[href*="learn.php?id="]');
+    if (nextLink) window.location.href = nextLink.href;
+  }
+  if (e.altKey && e.key === 'ArrowLeft') {
+    const prevLink = document.querySelector('.actions a.btn-light[href*="learn.php?id="]');
+    if (prevLink) window.location.href = prevLink.href;
+  }
+});
+
+// Điều khiển danh sách bài học trên thiết bị di động
+(() => {
+  const menuBtn = document.getElementById('menuBtn');
+  const lessonsNav = document.getElementById('lessonsNav');
+  const shade = document.getElementById('shade');
+  if (!menuBtn || !lessonsNav || !shade) return;
+
+  function toggleNav(open) {
+    lessonsNav.classList.toggle('open', open);
+    shade.classList.toggle('open', open);
+    menuBtn.setAttribute('aria-expanded', String(open));
+    menuBtn.setAttribute('aria-label', open ? 'Đóng danh sách bài học' : 'Mở danh sách bài học');
+  }
+
+  menuBtn.addEventListener('click', () => {
+    toggleNav(!lessonsNav.classList.contains('open'));
+  });
+
+  shade.addEventListener('click', () => {
+    toggleNav(false);
+  });
+
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && lessonsNav.classList.contains('open')) {
+      toggleNav(false);
+    }
+  });
+
+  window.addEventListener('resize', () => {
+    if (window.innerWidth > 850 && lessonsNav.classList.contains('open')) {
+      toggleNav(false);
+    }
+  });
+
+  const focusBtn = document.getElementById('focusModeBtn');
+  if (focusBtn) {
+    focusBtn.addEventListener('click', () => {
+      const isFocus = document.body.classList.toggle('focus-mode');
+      const textSpan = focusBtn.querySelector('span:last-child');
+      if (textSpan) textSpan.textContent = isFocus ? 'Thoát tập trung' : 'Chế độ tập trung';
+      try { localStorage.setItem('bf_focus_mode', isFocus ? '1' : '0'); } catch (_) {}
+    });
+    try {
+      if (localStorage.getItem('bf_focus_mode') === '1') {
+        document.body.classList.add('focus-mode');
+        const textSpan = focusBtn.querySelector('span:last-child');
+        if (textSpan) textSpan.textContent = 'Thoát tập trung';
+      }
+    } catch (_) {}
+  }
+})();
 </script>
 
+<script src="<?= e(app_url('js/bf-toast.js')) ?>"></script>
 <script src="<?= e(app_url('js/bf-ux-refresh.js')) ?>" defer></script>
 </body></html>

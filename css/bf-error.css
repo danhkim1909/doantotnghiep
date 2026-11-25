@@ -1,0 +1,61 @@
+body {
+  min-height: 100vh;
+  margin: 0;
+  background:
+    radial-gradient(circle at top right, rgba(79, 70, 229, 0.10), transparent 32rem),
+    var(--bf-bg);
+  color: var(--bf-ink);
+  font-family: Inter, "Segoe UI", system-ui, sans-serif;
+}
+
+.bf-error-page {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+}
+
+.bf-error-card {
+  width: min(100%, 520px);
+  background: var(--bf-surface);
+  border: 1px solid var(--bf-line);
+  border-radius: var(--bf-radius-lg);
+  box-shadow: 0 24px 60px rgba(23, 32, 51, 0.10);
+  padding: 44px;
+  text-align: center;
+}
+
+.bf-error-code {
+  color: var(--bf-blue);
+  font-size: 13px;
+  font-weight: 800;
+  letter-spacing: 0.16em;
+  margin-bottom: 14px;
+}
+
+.bf-error-card h1 {
+  margin: 0 0 12px;
+  font-size: clamp(28px, 5vw, 40px);
+  line-height: 1.15;
+  letter-spacing: -0.03em;
+}
+
+.bf-error-card p {
+  color: var(--bf-muted);
+  line-height: 1.7;
+  margin: 0 auto 26px;
+  max-width: 390px;
+}
+
+.bf-error-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 44px;
+  padding: 10px 16px;
+  border-radius: var(--bf-radius-md);
+  background: var(--bf-blue);
+  color: #fff;
+  font-weight: 750;
+  text-decoration: none;
+}

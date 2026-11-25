@@ -1,19 +1,93 @@
 :root {
+  /* Typography */
+  --bf-font-sans: Inter, "Segoe UI", system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+
+  /* Primary Brand Colors */
   --bf-blue: #5046e5;
   --bf-blue-dark: #4338ca;
+  --bf-blue-light: #eef2ff;
+  --bf-focus: #a5b4fc;
+
+  /* Secondary / Accent Colors */
+  --bf-purple: #7c3aed;
+  --bf-purple-light: #ede9fe;
+  --bf-purple-dark: #6d28d9;
+
+  /* Neutral Surface & Ink Colors */
   --bf-ink: #172033;
   --bf-muted: #64748b;
   --bf-line: #e5eaf3;
   --bf-bg: #f6f8fc;
   --bf-surface: #ffffff;
-  --bf-focus: #a5b4fc;
+
+  /* Semantic Feedback Colors */
+  --bf-success: #166534;
+  --bf-success-bg: #dcfce7;
+  --bf-success-text: #16a34a;
+
+  --bf-warning: #92400e;
+  --bf-warning-bg: #fef3c7;
+
+  --bf-danger: #9f1239;
+  --bf-danger-bg: #ffe4e6;
+  --bf-danger-text: #be123c;
+
+  /* Border Radii */
   --bf-radius-sm: 9px;
   --bf-radius-md: 10px;
   --bf-radius-lg: 16px;
+  --bf-radius-xl: 20px;
+  --bf-radius-full: 9999px;
+
+  /* Layout Measurements */
+  --bf-sidebar-width: 255px;
+  --bf-topbar-height: 80px;
+
+  /* Spacing Scale (4px-based) */
   --bf-space-1: 4px;
   --bf-space-2: 8px;
   --bf-space-3: 12px;
   --bf-space-4: 16px;
   --bf-space-5: 20px;
   --bf-space-6: 24px;
+  --bf-space-8: 32px;
+  --bf-space-10: 40px;
+
+  /* Box Shadows */
+  --bf-shadow-sm: 0 2px 8px rgba(23, 32, 51, 0.04);
+  --bf-shadow: 0 10px 28px rgba(23, 32, 51, 0.045);
+  --bf-shadow-md: 0 12px 32px rgba(23, 32, 51, 0.06);
+  --bf-shadow-lg: 0 18px 42px rgba(23, 32, 51, 0.09);
+
+  /* Legacy Backward-Compatibility Aliases */
+  --bf-brand: var(--bf-blue);
+  --bf-brand-hover: var(--bf-blue-dark);
+  --bf-ds-bg: var(--bf-bg);
+  --bf-ds-surface: var(--bf-surface);
+  --bf-ds-text: var(--bf-ink);
+  --bf-ds-muted: var(--bf-muted);
+  --bf-ds-border: var(--bf-line);
+  --bf-ds-primary: var(--bf-blue);
+  --bf-ds-primary-dark: var(--bf-blue-dark);
+  --bf-ds-radius: var(--bf-radius-lg);
+  --bf-ds-shadow: var(--bf-shadow-md);
+
+  /* Generic CSS Variables for Dashboards */
+  --primary: var(--bf-blue);
+  --primary-dark: var(--bf-blue-dark);
+  --primary-light: var(--bf-blue-light);
+  --secondary: var(--bf-purple);
+  --background: var(--bf-bg);
+  --surface: var(--bf-surface);
+  --text: var(--bf-ink);
+  --muted: var(--bf-muted);
+  --border: var(--bf-line);
+  --success: var(--bf-success-text);
+  --radius: var(--bf-radius-lg);
+  --sidebar-width: var(--bf-sidebar-width);
+
+  /* Admin portal legacy aliases */
+  --bf-txt: var(--bf-ink);
+  --bf-sub: var(--bf-muted);
+  --bf-primary: var(--bf-blue);
 }

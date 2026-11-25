@@ -1,0 +1,190 @@
+/* BrightFuture - Lesson Discussions CSS */
+
+.bf-discussion {
+    background: var(--color-surface, #ffffff);
+    border: 1px solid var(--color-border, #e2e8f0);
+    border-radius: var(--radius-lg, 14px);
+    padding: var(--space-5, 20px);
+    margin: var(--space-4, 16px) 0;
+    scroll-margin-top: 95px;
+    transition: border-color var(--transition-fast, 0.15s ease), box-shadow var(--transition-fast, 0.15s ease);
+}
+
+.bf-discussion:target,
+.bf-reply:target {
+    border-color: #6366f1;
+    box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.15);
+    background: #f8faff;
+}
+
+.bf-discussion-head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 10px;
+    color: var(--color-muted, #64748b);
+    font-size: 13px;
+    margin-bottom: 10px;
+}
+
+.bf-user-badge-wrap {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.bf-avatar-circle {
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    background: #e0e7ff;
+    color: #4338ca;
+    font-weight: 700;
+    font-size: 13px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.bf-avatar-teacher {
+    background: #dbeafe;
+    color: #1e40af;
+    border: 1px solid #bfdbfe;
+}
+
+.bf-discussion-author {
+    color: var(--color-text, #0f172a);
+    font-weight: 700;
+    font-size: 14px;
+}
+
+.bf-discussion-body {
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    line-height: 1.65;
+    margin: 10px 0 14px;
+    color: var(--color-text, #0f172a);
+    font-size: 15px;
+}
+
+.bf-replies {
+    margin: 16px 0 0 20px;
+    padding-left: 18px;
+    border-left: 3px solid #c7d2fe;
+}
+
+.bf-reply {
+    padding: 14px 18px;
+    background: #f8faff;
+    border: 1px solid #e0e7ff;
+    border-radius: var(--radius-md, 10px);
+    margin: 10px 0;
+    scroll-margin-top: 110px;
+}
+
+.bf-reply-body {
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    margin: 8px 0 0;
+    line-height: 1.6;
+    color: var(--color-text, #0f172a);
+    font-size: 14px;
+}
+
+.bf-reply-form {
+    margin: 16px 0 0 20px;
+    padding: 16px;
+    background: #fbfcfe;
+    border: 1px dashed #cbd5e1;
+    border-radius: var(--radius-md, 10px);
+}
+
+.bf-reply-form label {
+    font-weight: 700;
+    font-size: 13px;
+    display: block;
+    margin-bottom: 8px;
+    color: var(--color-text, #0f172a);
+}
+
+.bf-reply-form textarea {
+    width: 100%;
+    min-height: 85px;
+    resize: vertical;
+}
+
+.bf-reply-form button {
+    margin-top: 10px;
+}
+
+.bf-discussion-count {
+    color: var(--color-muted, #64748b);
+    font-size: 13px;
+    font-weight: 400;
+}
+
+.bf-issue-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    background: #fef2f2;
+    color: #b91c1c;
+    border: 1px solid #fecaca;
+    font-size: 11px;
+    font-weight: 700;
+    padding: 2px 8px;
+    border-radius: 999px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+
+.bf-answered-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    background: #ecfdf5;
+    color: #065f46;
+    border: 1px solid #a7f3d0;
+    font-size: 11px;
+    font-weight: 700;
+    padding: 2px 8px;
+    border-radius: 999px;
+}
+
+.bf-pending-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    background: #f8fafc;
+    color: #64748b;
+    border: 1px solid #e2e8f0;
+    font-size: 11px;
+    font-weight: 600;
+    padding: 2px 8px;
+    border-radius: 999px;
+}
+
+.bf-char-counter {
+    font-size: 12px;
+    color: #64748b;
+    font-weight: 600;
+}
+
+.bf-char-counter.warning {
+    color: #f59e0b;
+}
+
+.bf-char-counter.danger {
+    color: #ef4444;
+}
+
+@media (max-width: 600px) {
+    .bf-discussion {
+        padding: 14px;
+    }
+    .bf-replies,
+    .bf-reply-form {
+        margin-left: 4px;
+        padding-left: 10px;
+    }
+}

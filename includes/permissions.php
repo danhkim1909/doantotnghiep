@@ -9,6 +9,63 @@
 
 
 require_once __DIR__ . '/auth.php';
+require_once __DIR__ . '/totp.php';
+
+if (!function_exists('bf_audit_log')) {
+    function bf_audit_log(
+        string $action,
+        string $targetType,
+        ?int $targetId = null,
+        array $metadata = []
+    ): bool {
+        $actor = current_user();
+        $ipAddress = null;
+        $remoteAddress = trim((string) ($_SERVER['REMOTE_ADDR'] ?? ''));
+        $ipAddress = filter_var($remoteAddress, FILTER_VALIDATE_IP)
+            ? $remoteAddress
+            : null;
+
+        $userAgent = trim((string) ($_SERVER['HTTP_USER_AGENT'] ?? ''));
+        if (strlen($userAgent) > 255) {
+            $userAgent = substr($userAgent, 0, 255);
+        }
+
+        $encodedMetadata = null;
+        if ($metadata !== []) {
+            try {
+                $encodedMetadata = json_encode(
+                    $metadata,
+                    JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR
+                );
+            } catch (Throwable $exception) {
+                error_log('[BrightFuture Audit] Cannot encode metadata: ' . $exception->getMessage());
+                $encodedMetadata = null;
+            }
+        }
+
+        try {
+            $stmt = db()->prepare(
+                'INSERT INTO bf_audit_logs
+                    (actor_id, action, target_type, target_id, metadata, ip_address, user_agent)
+                 VALUES
+                    (:actor_id, :action, :target_type, :target_id, :metadata, :ip_address, :user_agent)'
+            );
+            $stmt->execute([
+                'actor_id' => $actor ? (int) $actor['id'] : null,
+                'action' => substr($action, 0, 80),
+                'target_type' => substr($targetType, 0, 80),
+                'target_id' => $targetId,
+                'metadata' => $encodedMetadata,
+                'ip_address' => $ipAddress,
+                'user_agent' => $userAgent !== '' ? $userAgent : null,
+            ]);
+            return true;
+        } catch (Throwable $exception) {
+            error_log('[BrightFuture Audit] ' . $exception->getMessage());
+            return false;
+        }
+    }
+}
 
 // =====================================================
 // 1. CAC QUYEN HE THONG
@@ -117,23 +174,11 @@ function deny_access(
         ], 403);
     }
 
-    header('Content-Type: text/html; charset=utf-8');
-
-    echo '<!DOCTYPE html>';
-    echo '<html lang="vi">';
-    echo '<head>';
-    echo '<meta charset="UTF-8">';
-    echo '<title>403 - Không có quyền</title>';
-    echo '</head>';
-    echo '<body>';
-    echo '<h2>403 - Truy cập bị từ chối</h2>';
-    echo '<p>' . e($message) . '</p>';
-    echo '<a href="' . e(app_url()) . '">';
-    echo 'Về trang chủ';
-    echo '</a>';
-    echo '</body></html>';
-
-    exit;
+    render_http_error(
+        403,
+        'Không có quyền truy cập',
+        $message
+    );
 }
 
 // =====================================================

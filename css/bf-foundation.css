@@ -1,0 +1,91 @@
+@import url("tokens.css");
+
+html {
+  font-family: var(--bf-font-sans);
+}
+
+.bf-logo {
+  align-items: center;
+  display: flex;
+  gap: 10px;
+  letter-spacing: -0.02em;
+}
+
+.bf-logo-mark {
+  align-items: center;
+  background: linear-gradient(135deg, #5046e5, #4338ca);
+  border-radius: 10px;
+  color: #fff;
+  display: inline-flex;
+  font-size: 12px;
+  height: 38px;
+  justify-content: center;
+  letter-spacing: 0.04em;
+  margin: 0;
+  padding: 0;
+  width: 38px;
+}
+
+.bf-logo-text {
+  background: none;
+  color: var(--bf-ink);
+  font-size: 21px;
+  font-weight: 850;
+  padding: 0;
+}
+
+.bf-nav a {
+  min-height: 46px;
+}
+
+.bf-nav-icon,
+.bf-button-icon,
+.bf-menu-icon {
+  flex-shrink: 0;
+  height: 20px;
+  width: 20px;
+}
+
+.bf-nav a span {
+  font-size: 14px;
+  text-align: left;
+  width: auto;
+}
+
+.bf-menu {
+  align-items: center;
+  display: inline-flex;
+  height: 40px;
+  justify-content: center;
+  padding: 0;
+  width: 40px;
+}
+
+.bf-user .bf-muted {
+  align-items: center;
+  display: flex;
+  gap: 8px;
+  justify-content: center;
+}
+
+.bf-panel,
+.bf-row,
+.bf-empty,
+.bf-chip,
+.bf-btn,
+.bf-muted,
+.bf-input {
+  border-color: var(--bf-line);
+}
+
+.bf-note,
+.bf-success,
+.bf-error {
+  line-height: 1.65;
+}
+
+@media (max-width: 590px) {
+  .bf-logo-text {
+    font-size: 19px;
+  }
+}

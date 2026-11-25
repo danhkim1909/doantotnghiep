@@ -30,6 +30,19 @@ function getDBConnection(): PDO
         return $pdo;
     } catch (PDOException $e) {
         error_log('[BrightFuture Database] ' . $e->getMessage());
+        if (PHP_SAPI !== 'cli' && !headers_sent()) {
+            if (!function_exists('render_http_error')) {
+                @require_once __DIR__ . '/../includes/functions.php';
+            }
+            if (function_exists('render_http_error')) {
+                render_http_error(
+                    500,
+                    'Không thể kết nối cơ sở dữ liệu',
+                    'Hệ thống đang gặp sự cố kết nối tới máy chủ cơ sở dữ liệu MySQL. Vui lòng đảm bảo MySQL đã được khởi động và thử lại sau ít phút.',
+                    function_exists('app_url') ? app_url() : '/'
+                );
+            }
+        }
         http_response_code(500);
         throw new RuntimeException(
             'Không thể kết nối cơ sở dữ liệu. Vui lòng kiểm tra cấu hình MySQL.',

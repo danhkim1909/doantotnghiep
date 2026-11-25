@@ -13,6 +13,7 @@
 declare(strict_types=1);
 
 require_once __DIR__ . '/../includes/permissions.php';
+require_once __DIR__ . '/../includes/lesson_media.php';
 
 header('Content-Type: application/json; charset=utf-8');
 header('Cache-Control: no-store, no-cache, must-revalidate');
@@ -89,7 +90,7 @@ function progress_authorized_lesson(PDO $pdo, int $lessonId, int $studentId): ?a
              AND e.status IN (\'active\', \'completed\')
          WHERE l.id = :lesson_id
              AND l.status = \'published\'
-             AND c.status = \'published\'
+             AND c.status = \'published\' AND c.deleted_at IS NULL
          LIMIT 1'
     );
     $stmt->execute(['student_id' => $studentId, 'lesson_id' => $lessonId]);
@@ -106,7 +107,7 @@ function progress_authorized_course(PDO $pdo, int $courseId, int $studentId): ?a
          JOIN enrollments e ON e.course_id = c.id
              AND e.student_id = :student_id
              AND e.status IN (\'active\', \'completed\')
-         WHERE c.id = :course_id AND c.status = \'published\'
+         WHERE c.id = :course_id AND c.status = \'published\' AND c.deleted_at IS NULL
          LIMIT 1'
     );
     $stmt->execute(['student_id' => $studentId, 'course_id' => $courseId]);
@@ -260,7 +261,8 @@ try {
         // Serialize writes for a given student/course with the enrollment row lock.
         // Lock before reading or writing progress; do not trust lesson_id from client.
         $lock = $pdo->prepare(
-            'SELECT e.id, l.video_duration_seconds, l.duration_minutes
+            'SELECT l.id, l.video_source, l.video_url, l.video_file_path,
+                    l.video_duration_seconds, l.duration_minutes
              FROM lessons l
              JOIN course_chapters cc ON cc.id = l.chapter_id
              JOIN courses c ON c.id = cc.course_id AND c.status = \'published\'
@@ -276,6 +278,10 @@ try {
             $pdo->rollBack();
             progress_response(404, 'Không tìm thấy bài giảng hoặc bạn chưa có quyền cập nhật.');
         }
+        if ($action === 'position' && !bf_lesson_has_video($lessonLock)) {
+            $pdo->rollBack();
+            progress_response(422, 'Bài học này không có video để theo dõi.');
+        }
 
         // Unique(student_id, lesson_id) allows a safe insert on first activity.
         $insert = $pdo->prepare(
@@ -287,12 +293,9 @@ try {
         $insert->execute(['student_id' => $studentId, 'lesson_id' => $lessonId]);
 
         if ($action === 'complete') {
-            // A client cannot mark a lesson complete before reaching the video threshold.
-            $knownDuration=(int)($lessonLock['video_duration_seconds']??0);
-            if($knownDuration<=0){$knownDuration=(int)($lessonLock['duration_minutes']??0)*60;}
             $check=$pdo->prepare('SELECT last_position_seconds FROM lesson_progress WHERE student_id=? AND lesson_id=? LIMIT 1');
             $check->execute([$studentId,$lessonId]);$saved=(int)$check->fetchColumn();
-            if($saved<1 || ($knownDuration>0 && $saved < (int)ceil($knownDuration*0.90))){
+            if (!bf_lesson_video_completion_allowed($lessonLock, $saved)) {
                 $pdo->rollBack();progress_response(422,'Bạn cần xem ít nhất 90% video trước khi hoàn thành bài học.');
             }
 
@@ -305,7 +308,7 @@ try {
             $quizGate->execute(['lid'=>$lessonId,'sid'=>$studentId]);
             if ((int)$quizGate->fetchColumn()>0) {
                 $pdo->commit();
-                progress_response(200,'Đã lưu tiến độ video. Bài học chỉ hoàn thành khi đạt trắc nghiệm (đúng ít nhất 5/10 câu).', [
+                progress_response(200,'Bài học chỉ hoàn thành sau khi đạt các bài trắc nghiệm đã công khai.', [
                     'lesson_id'=>$lessonId,'progress'=>[
                         'status'=>'in_progress','last_position_seconds'=>$saved],
                     'quiz_required'=>true]);

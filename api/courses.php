@@ -87,7 +87,7 @@ try {
                          WHERE cc.course_id = c.id AND l.status = 'published') AS lesson_count
                  FROM courses c
                  JOIN users u ON u.id = c.teacher_id
-                 WHERE c.id = :id AND c.status = 'published'
+                 WHERE c.id = :id AND c.status = 'published' AND c.deleted_at IS NULL
                  LIMIT 1"
             );
             $stmt->execute(['id' => $courseId]);
@@ -170,7 +170,7 @@ try {
         $viewerId = $viewer && $viewer['role'] === ROLE_STUDENT ? (int)$viewer['id'] : null;
         $visibleIds = bf_visible_course_ids($pdo, $viewerId);
         if (!$visibleIds) course_api_send(200, 'Chưa có khóa học đã mở khóa.', [], paginate(0, $page, $perPage));
-        $where = ["c.status = 'published'", 'c.id IN (' . implode(',', $visibleIds) . ')'];
+        $where = ["c.status = 'published'", 'c.deleted_at IS NULL', 'c.id IN (' . implode(',', $visibleIds) . ')'];
         $params = [];
         if ($search !== '') {
             $like = '%' . str_replace(['!', '%', '_'], ['!!', '!%', '!_'], $search) . '%';
@@ -270,7 +270,7 @@ try {
         $pdo->beginTransaction();
         try {
             // Lock the course row so enrolment and publication checks are consistent.
-            $stmt = $pdo->prepare('SELECT id, status FROM courses WHERE id = :id FOR UPDATE');
+            $stmt = $pdo->prepare('SELECT id, status FROM courses WHERE id = :id AND deleted_at IS NULL FOR UPDATE');
             $stmt->execute(['id' => $courseId]);
             $course = $stmt->fetch();
             if (!$course || $course['status'] !== 'published') {

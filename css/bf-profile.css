@@ -1,0 +1,354 @@
+/**
+ * BrightFuture - Profile & Security CSS
+ * Giao diện trang Hồ sơ cá nhân, đo độ mạnh mật khẩu và hiển thị mã bảo mật 2FA.
+ */
+.profile-content {
+    max-width: 1200px;
+    width: 100%;
+    margin: 0 auto;
+    padding: 32px 32px 70px;
+}
+
+.profile-content .crumb {
+    color: #64748b;
+    font-size: 13px;
+    margin-bottom: 12px;
+}
+
+.profile-content .crumb a {
+    color: #4f46e5;
+    text-decoration: none;
+}
+
+.profile-content .crumb a:hover {
+    text-decoration: underline;
+}
+
+h1.profile-title {
+    font-size: 28px;
+    font-weight: 800;
+    margin: 0 0 6px;
+    letter-spacing: -0.5px;
+    color: #0f172a;
+}
+
+.profile-content .muted {
+    color: #64748b;
+    font-size: 14px;
+}
+
+.profile-content .hero {
+    display: flex;
+    align-items: center;
+    gap: 20px;
+    padding: 24px;
+    border: 1px solid #e2e8f0;
+    border-radius: 16px;
+    background: #ffffff;
+    margin: 20px 0;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+}
+
+.profile-content .avatar {
+    width: 80px;
+    height: 80px;
+    display: grid;
+    place-items: center;
+    border-radius: 20px;
+    font-size: 36px;
+    font-weight: 800;
+    background: #e0e7ff;
+    color: #4338ca;
+    flex-shrink: 0;
+}
+
+.profile-content .hero h2 {
+    margin: 0 0 5px;
+    font-size: 22px;
+    color: #1e293b;
+}
+
+.profile-content .stats {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 16px;
+    margin: 0 0 24px;
+}
+
+.profile-content .stat,
+.profile-content .panel {
+    border: 1px solid #e2e8f0;
+    border-radius: 16px;
+    background: #ffffff;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+}
+
+.profile-content .stat {
+    padding: 20px;
+}
+
+.profile-content .stat .n {
+    font-size: 28px;
+    font-weight: 800;
+    color: #1e293b;
+    margin-bottom: 4px;
+}
+
+.profile-content .stat .label {
+    color: #64748b;
+    font-size: 13px;
+    font-weight: 500;
+}
+
+.profile-content .sections {
+    display: grid;
+    grid-template-columns: 1.35fr 1fr;
+    gap: 24px;
+    align-items: start;
+}
+
+.profile-content .panel {
+    padding: 24px;
+    margin-bottom: 24px;
+}
+
+.profile-content .panel h2 {
+    font-size: 18px;
+    font-weight: 700;
+    color: #1e293b;
+    margin: 0 0 8px;
+}
+
+.profile-content label {
+    display: block;
+    font-size: 13px;
+    font-weight: 600;
+    color: #334155;
+    margin: 0 0 7px;
+}
+
+.profile-content .field {
+    margin-bottom: 18px;
+}
+
+.profile-content input,
+.profile-content textarea {
+    width: 100%;
+    border: 1px solid #cbd5e1;
+    background: #ffffff;
+    padding: 11px 14px;
+    border-radius: 10px;
+    outline: 0;
+    color: #1e293b;
+    font-size: 14px;
+    transition: all 0.2s ease;
+    box-sizing: border-box;
+}
+
+.profile-content textarea {
+    min-height: 100px;
+    resize: vertical;
+}
+
+.profile-content input:focus,
+.profile-content textarea:focus {
+    border-color: #4f46e5;
+    box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.12);
+}
+
+.profile-content .grid2 {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+}
+
+.profile-content .btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    background: #4f46e5;
+    color: #ffffff;
+    border: 0;
+    padding: 11px 20px;
+    border-radius: 10px;
+    font-weight: 600;
+    font-size: 14px;
+    cursor: pointer;
+    transition: all 0.18s ease;
+    text-decoration: none;
+}
+
+.profile-content .btn:hover {
+    background: #4338ca;
+}
+
+.profile-content .btn-secondary {
+    background: #f1f5f9;
+    color: #334155;
+    border: 1px solid #cbd5e1;
+}
+
+.profile-content .btn-secondary:hover {
+    background: #e2e8f0;
+}
+
+.profile-content .banner {
+    padding: 13px 16px;
+    border-radius: 10px;
+    margin: 14px 0;
+    border: 1px solid #fecaca;
+    background: #fff1f2;
+    color: #9f1239;
+    font-size: 14px;
+    line-height: 1.5;
+}
+
+.profile-content .banner.ok {
+    background: #ecfdf5;
+    color: #166534;
+    border-color: #a7f3d0;
+}
+
+.profile-content .subtitle {
+    font-size: 13px;
+    color: #64748b;
+    margin-top: -4px;
+    margin-bottom: 18px;
+}
+
+.profile-content .password-hint {
+    font-size: 12px;
+    color: #64748b;
+    line-height: 1.5;
+}
+
+/* Password Input with Show/Hide Toggle */
+.bf-pwd-wrap {
+    position: relative;
+    display: flex;
+    align-items: center;
+}
+
+.bf-pwd-wrap input {
+    padding-right: 42px;
+}
+
+.bf-pwd-toggle {
+    position: absolute;
+    right: 8px;
+    background: transparent;
+    border: 0;
+    color: #64748b;
+    cursor: pointer;
+    padding: 6px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 6px;
+}
+
+.bf-pwd-toggle:hover {
+    color: #1e293b;
+    background: #f1f5f9;
+}
+
+/* Password Strength Meter */
+.bf-pwd-meter {
+    margin-top: 8px;
+}
+
+.bf-pwd-meter-bar {
+    height: 6px;
+    background: #e2e8f0;
+    border-radius: 3px;
+    overflow: hidden;
+    margin-bottom: 6px;
+}
+
+.bf-pwd-meter-fill {
+    height: 100%;
+    width: 0%;
+    transition: width 0.3s ease, background-color 0.3s ease;
+    border-radius: 3px;
+}
+
+.bf-pwd-meter-text {
+    font-size: 12px;
+    font-weight: 600;
+    color: #64748b;
+    display: flex;
+    justify-content: space-between;
+}
+
+.bf-pwd-criteria {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 4px 10px;
+    margin-top: 8px;
+    font-size: 11px;
+    color: #94a3b8;
+}
+
+.bf-pwd-crit-item.valid {
+    color: #16a34a;
+    font-weight: 600;
+}
+
+/* 2FA Backup Codes Box */
+.bf-backup-box {
+    background: #f8fafc;
+    border: 1px solid #cbd5e1;
+    border-radius: 12px;
+    padding: 16px;
+    margin: 16px 0;
+}
+
+.bf-backup-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 8px;
+    margin: 12px 0;
+}
+
+.bf-backup-code {
+    background: #ffffff;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    padding: 8px 12px;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    font-weight: 700;
+    color: #1e293b;
+    font-size: 13px;
+    text-align: center;
+    letter-spacing: 1px;
+}
+
+@media (max-width: 900px) {
+    .profile-content .sections {
+        grid-template-columns: 1fr;
+    }
+    .profile-content {
+        padding: 22px 16px 50px;
+    }
+}
+
+@media (max-width: 560px) {
+    .profile-content .stats {
+        grid-template-columns: 1fr;
+    }
+    .profile-content .grid2 {
+        grid-template-columns: 1fr;
+    }
+    .profile-content .hero {
+        align-items: flex-start;
+    }
+    .profile-content .avatar {
+        width: 62px;
+        height: 62px;
+        font-size: 28px;
+    }
+    .bf-backup-grid {
+        grid-template-columns: 1fr;
+    }
+}

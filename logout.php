@@ -12,7 +12,7 @@
 // 1. LOAD HE THONG XAC THUC
 // ==================================================
 
-require_once __DIR__ . '/includes/auth.php';
+require_once __DIR__ . '/includes/permissions.php';
 
 // ==================================================
 // 2. CHI CHO PHEP HTTP POST
@@ -57,8 +57,8 @@ require_csrf();
 if (!is_logged_in()) {
 
     // Khong can huy Session neu chua dang nhap.
-    // Chuyen ve trang dang nhap.
-    redirect('login.php');
+    // Chuyen ve trang chu.
+    redirect('index.php');
 }
 
 // ==================================================
@@ -72,6 +72,11 @@ if (!is_logged_in()) {
 // - Xoa du lieu Session
 // - Xoa Session Cookie
 // - session_destroy()
+
+$logoutUser = current_user();
+if ($logoutUser) {
+    bf_audit_log('logout.success', 'user', (int) $logoutUser['id']);
+}
 
 logout_user();
 
@@ -98,7 +103,7 @@ set_flash(
 );
 
 // ==================================================
-// 8. CHUYEN VE TRANG DANG NHAP
+// 8. CHUYEN VE TRANG CHU
 // ==================================================
 
-redirect('login.php');
+redirect('index.php');

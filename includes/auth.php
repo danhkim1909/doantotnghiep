@@ -111,6 +111,7 @@ if (!function_exists('current_user')) {
                 updated_at
              FROM users
              WHERE id = :id
+               AND deleted_at IS NULL
              LIMIT 1"
         );
 
@@ -234,9 +235,11 @@ if (!function_exists('attempt_login')) {
             "SELECT
                 id,
                 password_hash,
-                role
+                role,
+                email_verified_at
              FROM users
              WHERE email = :email
+               AND deleted_at IS NULL
              LIMIT 1"
         );
 
@@ -262,6 +265,11 @@ if (!function_exists('attempt_login')) {
             USER_ROLES,
             true
         )) {
+            return false;
+        }
+
+        if (empty($user['email_verified_at'])) {
+            $_SESSION['pending_verification_email'] = $email;
             return false;
         }
 
@@ -321,6 +329,7 @@ if (!function_exists('login_user')) {
             "SELECT id, role
              FROM users
              WHERE id = :id
+               AND deleted_at IS NULL
              LIMIT 1"
         );
 

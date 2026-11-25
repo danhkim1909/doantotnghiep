@@ -382,6 +382,52 @@ if (!function_exists('render_flash')) {
     }
 }
 
+if (!function_exists('render_http_error')) {
+    function render_http_error(
+        int $status,
+        string $title,
+        string $message,
+        ?string $backUrl = null
+    ): never {
+        http_response_code($status);
+        header('Content-Type: text/html; charset=utf-8');
+        header('Cache-Control: no-store');
+
+        $statusText = match ($status) {
+            403 => '403',
+            404 => '404',
+            405 => '405',
+            500 => '500',
+            default => (string) $status,
+        };
+        $backUrl ??= app_url();
+        ?>
+        <!doctype html>
+        <html lang="vi">
+        <head>
+            <meta charset="utf-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1">
+            <title><?= e($statusText . ' - ' . $title) ?></title>
+            <link rel="stylesheet" href="<?= e(app_url('css/tokens.css')) ?>">
+            <link rel="stylesheet" href="<?= e(app_url('css/bf-foundation.css')) ?>">
+            <link rel="stylesheet" href="<?= e(app_url('css/bf-error.css')) ?>">
+        </head>
+        <body>
+            <main class="bf-error-page">
+                <section class="bf-error-card" role="alert">
+                    <div class="bf-error-code"><?= e($statusText) ?></div>
+                    <h1><?= e($title) ?></h1>
+                    <p><?= e($message) ?></p>
+                    <a class="bf-error-action" href="<?= e($backUrl) ?>">Quay lại trang chủ</a>
+                </section>
+            </main>
+        </body>
+        </html>
+        <?php
+        exit;
+    }
+}
+
 
 // ====================================================
 // 16. TAO DUONG DAN TAI NGUYEN

@@ -3,6 +3,7 @@
 
 
 require_once __DIR__ . '/../includes/permissions.php';
+require_once __DIR__ . '/../includes/portal_ui.php';
 $user = require_role(ROLE_TEACHER);
 $teacherId = (int)$user['id'];
 header('Cache-Control: no-store, private, max-age=0');
@@ -14,7 +15,7 @@ const TEACHER_COURSES_PER_PAGE = 9;
 function tc_flash(string $type, string $message): void { set_flash($type, $message); }
 function tc_back(): never { redirect('teacher/courses.php'); }
 function tc_owner_course(PDO $pdo, int $courseId, int $teacherId): ?array {
-    $stmt = $pdo->prepare('SELECT id, title, description, category, thumbnail, level, status FROM courses WHERE id = :id AND teacher_id = :teacher_id LIMIT 1');
+    $stmt = $pdo->prepare('SELECT id, title, description, category, thumbnail, level, status FROM courses WHERE id = :id AND teacher_id = :teacher_id AND deleted_at IS NULL LIMIT 1');
     $stmt->execute(['id' => $courseId, 'teacher_id' => $teacherId]);
     $data = $stmt->fetch();
     return $data ?: null;
@@ -103,7 +104,7 @@ if (is_post()) {
                 tc_flash('error', 'Khóa học đã có học viên đăng ký. Không thể xóa vì cần bảo toàn dữ liệu học tập.');
                 tc_back();
             }
-            $stmt = $pdo->prepare("DELETE FROM courses WHERE id = :id AND teacher_id = :teacher_id AND status = 'draft'");
+            $stmt = $pdo->prepare("UPDATE courses SET deleted_at = NOW() WHERE id = :id AND teacher_id = :teacher_id AND status = 'draft' AND deleted_at IS NULL");
             $stmt->execute(['id' => $id, 'teacher_id' => $teacherId]);
             if ($stmt->rowCount() !== 1) {
                 tc_flash('error', 'Khóa học đã thay đổi trạng thái hoặc không còn tồn tại.');
@@ -122,6 +123,14 @@ if (is_post()) {
     }
     if ($action === 'toggle') {
         $next = $existing['status'] === 'published' ? 'draft' : 'published';
+        if ($next === 'published') {
+            $checkLessons = $pdo->prepare('SELECT COUNT(l.id) FROM lessons l INNER JOIN course_chapters ch ON ch.id = l.chapter_id WHERE ch.course_id = :course_id');
+            $checkLessons->execute(['course_id' => $id]);
+            if ((int)$checkLessons->fetchColumn() === 0) {
+                tc_flash('error', 'Khóa học chưa có bài giảng nào. Vui lòng thêm ít nhất 1 bài học trước khi công khai.');
+                tc_back();
+            }
+        }
         $stmt = $pdo->prepare('UPDATE courses SET status=:status WHERE id=:id AND teacher_id=:teacher_id');
         $stmt->execute(['status'=>$next, 'id'=>$id, 'teacher_id'=>$teacherId]);
         tc_flash('success', $next === 'published' ? 'Đã công khai khóa học.' : 'Đã chuyển khóa học về bản nháp.');
@@ -144,6 +153,17 @@ if (is_post()) {
         if ($length($form['description']) > 20000) $errors[] = 'Mô tả không được vượt quá 20.000 ký tự.';
         if (!in_array($form['level'], ['beginner','intermediate','advanced'], true)) $errors[] = 'Trình độ không hợp lệ.';
         if (!in_array($form['status'], ['draft','published'], true)) $errors[] = 'Trạng thái không hợp lệ.';
+        if ($form['status'] === 'published') {
+            if (!$editing) {
+                $errors[] = 'Khóa học mới tạo chưa có bài giảng nào. Vui lòng lưu dưới dạng Bản nháp và thêm bài học trước khi công khai.';
+            } else {
+                $checkLessons = $pdo->prepare('SELECT COUNT(l.id) FROM lessons l INNER JOIN course_chapters ch ON ch.id = l.chapter_id WHERE ch.course_id = :course_id');
+                $checkLessons->execute(['course_id' => $id]);
+                if ((int)$checkLessons->fetchColumn() === 0) {
+                    $errors[] = 'Khóa học chưa có bài giảng nào. Vui lòng thêm ít nhất 1 bài học trước khi công khai.';
+                }
+            }
+        }
         $photo = $_FILES['thumbnail'] ?? null;
         $hasPhoto = is_array($photo) && ($photo['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_NO_FILE;
         if ($photo !== null && !is_array($photo)) $errors[] = 'Dữ liệu ảnh không hợp lệ.';
@@ -200,7 +220,7 @@ $pagination = paginate(0, $page, TEACHER_COURSES_PER_PAGE);
 $listError = false;
 
 try {
-    $stmt = $pdo->prepare("SELECT COUNT(*) AS total, COALESCE(SUM(status='draft'),0) AS draft, COALESCE(SUM(status='published'),0) AS published FROM courses WHERE teacher_id=:teacher_id");
+    $stmt = $pdo->prepare("SELECT COUNT(*) AS total, COALESCE(SUM(status='draft'),0) AS draft, COALESCE(SUM(status='published'),0) AS published FROM courses WHERE teacher_id=:teacher_id AND deleted_at IS NULL");
     $stmt->execute(['teacher_id'=>$teacherId]);
     $stats = $stmt->fetch() ?: $stats;
 
@@ -214,7 +234,7 @@ try {
         $params['category'] = '%'.$escaped.'%';
     }
     $where = implode(' AND ', $conditions);
-    $count = $pdo->prepare('SELECT COUNT(*) FROM courses c WHERE '.$where);
+    $count = $pdo->prepare('SELECT COUNT(*) FROM courses c WHERE c.deleted_at IS NULL AND '.$where);
     foreach ($params as $k=>$v) $count->bindValue(':'.$k, $v, $k==='teacher_id' ? PDO::PARAM_INT : PDO::PARAM_STR);
     $count->execute();
     $pagination = paginate((int)$count->fetchColumn(), $page, TEACHER_COURSES_PER_PAGE);
@@ -222,7 +242,7 @@ try {
         (SELECT COUNT(*) FROM enrollments e WHERE e.course_id=c.id AND e.status IN ('active','completed')) AS student_count,
         (SELECT COUNT(*) FROM course_chapters cc WHERE cc.course_id=c.id) AS chapter_count,
         (SELECT COUNT(*) FROM lessons l JOIN course_chapters cc ON cc.id=l.chapter_id WHERE cc.course_id=c.id) AS lesson_count
-        FROM courses c WHERE $where ORDER BY c.updated_at DESC,c.id DESC LIMIT :limit OFFSET :offset";
+        FROM courses c WHERE c.deleted_at IS NULL AND $where ORDER BY c.updated_at DESC,c.id DESC LIMIT :limit OFFSET :offset";
     $stmt = $pdo->prepare($sql);
     foreach ($params as $k=>$v) $stmt->bindValue(':'.$k, $v, $k==='teacher_id' ? PDO::PARAM_INT : PDO::PARAM_STR);
     $stmt->bindValue(':limit', $pagination['per_page'], PDO::PARAM_INT);
@@ -235,67 +255,16 @@ try {
 }
 $flash = get_flash();
 $showEditor = $editing || get_query('mode') === 'create' || ($errors !== []);
-$avatar = function_exists('mb_substr') ? mb_substr($user['full_name'], 0, 1, 'UTF-8') : substr($user['full_name'], 0, 1);
-?>
-<!DOCTYPE html>
-<html lang="vi">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Quản lý khóa học | <?= e(APP_NAME) ?></title>
-<style>
-:root{--primary:#4f46e5;--secondary:#7c3aed;--bg:#f6f8fc;--text:#172033;--muted:#64748b;--line:#e7ebf2;--side:255px}
-*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font-family:'Segoe UI',Arial,sans-serif}a{text-decoration:none;color:inherit}button,input,textarea,select{font:inherit}button{cursor:pointer}.layout{min-height:100vh}.sidebar{position:fixed;inset:0 auto 0 0;width:var(--side);background:white;border-right:1px solid var(--line);display:flex;flex-direction:column;z-index:20;transition:transform .25s}.logo{height:90px;display:flex;align-items:center;padding:0 24px;gap:10px;color:var(--primary);font-size:21px;font-weight:800}.mark{display:grid;place-items:center;width:40px;height:40px;border-radius:12px;background:linear-gradient(135deg,var(--primary),var(--secondary));color:white;font-size:14px}.nav{padding:12px 15px;flex:1;overflow:auto}.nav-label{padding:15px 13px 9px;color:#94a3b8;font-weight:700;text-transform:uppercase;letter-spacing:1px;font-size:11px}.nav a{display:flex;align-items:center;gap:12px;padding:13px 15px;border-radius:11px;color:var(--muted);font-size:14px;margin-bottom:4px}.nav a:hover,.nav a.active{background:#eef2ff;color:var(--primary)}.nav a.active{font-weight:700}.nav a span{font-size:18px}.sidebar-bottom{border-top:1px solid var(--line);padding:17px}.user-mini{display:flex;gap:10px;align-items:center;margin-bottom:15px}.avatar{display:grid;place-items:center;flex:none;width:42px;height:42px;border-radius:13px;background:#ede9fe;color:#6d28d9;font-weight:800}.user-mini strong{font-size:13px;display:block;max-width:157px;white-space:nowrap;text-overflow:ellipsis;overflow:hidden}.user-mini small{color:var(--muted)}.logout{width:100%;border:none;border-radius:10px;padding:12px;background:#fff1f2;color:#be123c;font-weight:700}.main{margin-left:var(--side);min-width:0}.topbar{height:83px;padding:0 36px;border-bottom:1px solid var(--line);background:white;display:flex;align-items:center;justify-content:space-between}.topbar strong{font-size:15px}.topbar .right{display:flex;align-items:center;gap:12px;font-size:13px}.content{max-width:1480px;margin:auto;padding:35px 36px 70px}.breadcrumb{font-size:13px;color:var(--muted);margin-bottom:24px}.breadcrumb a:hover{color:var(--primary)}.heading{display:flex;justify-content:space-between;gap:20px;align-items:center;margin-bottom:25px}.heading h1{font-size:29px;margin:0 0 8px;letter-spacing:-.7px}.heading p{color:var(--muted);margin:0;font-size:14px}.btn-primary{border:none;background:var(--primary);color:white;border-radius:11px;padding:12px 17px;font-size:13px;font-weight:700;display:inline-flex;align-items:center;justify-content:center}.btn-primary:hover{background:#4338ca}.stats{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:18px;margin-bottom:26px}.stat,.panel,.course{border:1px solid var(--line);background:white;border-radius:17px}.stat{padding:23px;display:flex;justify-content:space-between;align-items:center}.stat span{color:var(--muted);font-size:13px}.stat strong{display:block;font-size:28px;margin-top:10px}.stat b{font-size:22px;color:var(--primary);background:#eef2ff;padding:12px;border-radius:12px}.panel{padding:21px;margin-bottom:25px}.filter{display:flex;gap:12px;flex-wrap:wrap}.filter input{flex:1;min-width:180px}.filter input,.filter select,.field input,.field textarea,.field select{border:1.5px solid #dde3ef;background:#fff;border-radius:10px;padding:12px;outline:none;max-width:100%}.filter select{min-width:155px}.filter input:focus,.filter select:focus,.field input:focus,.field textarea:focus,.field select:focus{border-color:var(--primary);box-shadow:0 0 0 3px #eef2ff}.result{margin-top:14px;font-size:13px;color:var(--muted)}.result a{color:var(--primary);font-weight:700;margin-left:12px}.cards{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:19px}.course{overflow:hidden;display:flex;flex-direction:column}.thumb{height:148px;background:linear-gradient(130deg,#e0e7ff,#ddd6fe);display:grid;place-items:center;color:var(--primary);font-size:36px;font-weight:800;position:relative}.thumb img{width:100%;height:100%;object-fit:cover}.status{position:absolute;top:12px;right:12px;background:#fff7ed;color:#9a3412;border-radius:30px;padding:7px 11px;font-size:11px;font-weight:700}.status.published{background:#dcfce7;color:#166534}.course-body{padding:19px;display:flex;flex-direction:column;flex:1}.tag{display:inline-block;background:#eef2ff;color:var(--primary);font-weight:700;font-size:11px;padding:6px 9px;border-radius:7px;align-self:flex-start}.course h3{font-size:17px;line-height:1.5;margin:13px 0 8px}.desc{font-size:13px;line-height:1.65;color:var(--muted);min-height:42px;margin:0 0 16px;overflow-wrap:anywhere}.numbers{display:flex;gap:10px;flex-wrap:wrap;font-size:12px;color:var(--muted);margin-top:auto;border-top:1px solid var(--line);padding-top:14px}.actions{display:flex;flex-wrap:wrap;gap:8px;margin-top:17px}.actions .button{border:1px solid var(--line);background:white;color:var(--primary);border-radius:9px;padding:10px 11px;font-size:12px;font-weight:700;cursor:pointer}.actions .button:hover{background:#eef2ff}.actions .danger{color:#be123c}.actions .danger:hover{background:#fff1f2}.actions form{display:inline-flex}.alert{padding:14px 17px;border-radius:11px;margin-bottom:20px;font-size:14px}.alert-success{background:#f0fdf4;border:1px solid #bbf7d0;color:#166534}.alert-error{background:#fef2f2;border:1px solid #fecaca;color:#991b1b}.empty{grid-column:1/-1;text-align:center;padding:48px 18px;border:1px dashed #cbd5e1;border-radius:17px;background:white}.empty p{color:var(--muted)}.pagination{display:flex;justify-content:center;gap:7px;flex-wrap:wrap;margin-top:30px}.page-link{display:grid;place-items:center;min-width:40px;height:40px;border-radius:9px;border:1px solid var(--line);background:white;font-size:13px}.page-link.active{background:var(--primary);color:#fff;border-color:var(--primary)}.editor{margin-bottom:25px}.editor h2{font-size:21px;margin:0 0 16px}.fields{display:grid;grid-template-columns:1fr 1fr;gap:17px}.field{display:flex;flex-direction:column;gap:8px;font-size:13px;font-weight:600}.field.full{grid-column:1/-1}.field input,.field textarea,.field select{width:100%;font-weight:400}.field textarea{min-height:120px;resize:vertical}.hint{font-size:12px;color:var(--muted);font-weight:400}.form-actions{margin-top:20px;display:flex;gap:12px;align-items:center}.cancel{font-size:13px;color:var(--muted);font-weight:700}.mobile-menu{display:none;border:0;background:none;font-size:23px}.overlay{display:none}.preview-thumb{max-width:190px;max-height:110px;object-fit:cover;border-radius:9px;margin-top:6px}
-@media(max-width:1200px){.cards{grid-template-columns:repeat(2,minmax(0,1fr))}}@media(max-width:900px){.sidebar{transform:translateX(-100%)}.sidebar.open{transform:translateX(0)}.overlay.show{display:block;position:fixed;inset:0;background:#0f172a70;z-index:19}.main{margin-left:0}.mobile-menu{display:inline-block}.topbar{height:70px;padding:0 22px}.content{padding:26px 22px}}@media(max-width:650px){.stats,.cards,.fields{grid-template-columns:1fr}.field.full{grid-column:auto}.content{padding:20px 15px 40px}.heading{align-items:flex-start;flex-direction:column}.heading h1{font-size:25px}.topbar .right{display:none}.filter{flex-direction:column}.filter input,.filter select{width:100%}}
-</style>
-<link rel="stylesheet" href="<?= e(app_url('css/bf-legacy-fixes.css')) ?>">
+$pageTitle = 'Quản lý khóa học';
+$pageDescription = 'Tạo, chỉnh sửa và công khai khóa học dành cho học viên trên BrightFuture';
+$activeMenu = 'courses';
+$extraCss = ['css/bf-teacher-courses.css'];
 
-<link rel="stylesheet" href="<?= e(app_url('css/bf-ux-refresh.css')) ?>">
-<style id="bf-course-thumbnail-fix">
-/* Giữ trọn chữ được thiết kế sẵn trong ảnh bìa khóa học (4:3). */
-.cards .course .thumb {
-    height: auto;
-    aspect-ratio: 4 / 3;
-    overflow: hidden;
-    background: #eae7ff;
-    font-size: clamp(24px, 3vw, 36px);
-}
-.cards .course .thumb img {
-    display: block;
-    width: 100%;
-    height: 100%;
-    object-fit: contain;
-    object-position: center;
-}
-.cards .course .course-body { min-width: 0; }
-.cards .course h3 { overflow-wrap: anywhere; }
-.cards .course .desc { overflow-wrap: anywhere; }
-@media (max-width: 650px) {
-    .cards .course .thumb { aspect-ratio: 4 / 3; }
-}
-</style>
-</head>
-<body>
-<div class="layout">
-<div class="overlay" id="overlay"></div>
-<aside class="sidebar" id="sidebar">
-<a class="logo" href="<?= e(app_url()) ?>"><span class="mark">&lt;/&gt;</span>BrightFuture</a>
-<nav class="nav" aria-label="Điều hướng giáo viên">
-<div class="nav-label">Giảng dạy</div>
-<a href="<?= e(app_url('teacher/dashboard.php')) ?>"><span>▦</span>Tổng quan</a>
-<a class="active" aria-current="page" href="<?= e(app_url('teacher/courses.php')) ?>"><span>📚</span>Khóa học của tôi</a>
-<a href="<?= e(app_url('teacher/lessons.php')) ?>"><span>📖</span>Bài giảng</a>
-<a href="<?= e(app_url('teacher/exercises.php')) ?>"><span>💻</span>Bài tập</a>
-<a href="<?= e(app_url('teacher/submissions.php')) ?>"><span>✓</span>Chấm bài</a>
-<div class="nav-label">Cá nhân</div>
-<a href="<?= e(app_url('profile.php')) ?>"><span>☺</span>Hồ sơ</a>
-<a href="<?= e(app_url()) ?>"><span>⌂</span>Trang chủ</a>
-</nav>
-<div class="sidebar-bottom"><div class="user-mini"><div class="avatar"><?= e($avatar) ?></div><div><strong><?= e($user['full_name']) ?></strong><small>Giáo viên</small></div></div><form method="POST" action="<?= e(app_url('logout.php')) ?>"><?= csrf_field() ?><button class="logout" type="submit">Đăng xuất</button></form></div>
-</aside>
-<div class="main">
-<header class="topbar"><div style="display:flex;align-items:center;gap:15px"><button class="mobile-menu" type="button" id="menuBtn" aria-label="Mở menu" aria-controls="sidebar" aria-expanded="false">☰</button><strong>Không gian giảng dạy</strong></div><div class="right"><?= e($user['full_name']) ?><span class="avatar" style="width:37px;height:37px;border-radius:50%"><?= e($avatar) ?></span></div></header>
-<main class="content">
+require_once __DIR__ . '/../views/layouts/portal_head.php';
+?>
+<?= bf_unified_sidebar($user, 'courses') ?>
+<?php require_once __DIR__ . '/../views/layouts/portal_topbar.php'; ?>
+<main class="content tc-content">
 <div class="breadcrumb"><a href="<?= e(app_url('teacher/dashboard.php')) ?>">Tổng quan</a> / Quản lý khóa học</div>
 <div class="heading"><div><h1>Khóa học của tôi</h1><p>Tạo, chỉnh sửa và công khai khóa học dành cho học viên.</p></div><a class="btn-primary" href="<?= e(tc_query_url(['mode'=>'create'])) ?>">+ Tạo khóa học</a></div>
 <?php if ($flash && isset($flash['message'])): ?><div class="alert <?= ($flash['type'] ?? '') === 'success' ? 'alert-success' : 'alert-error' ?>" role="status"><?= e((string)$flash['message']) ?></div><?php endif; ?>
@@ -315,7 +284,11 @@ $avatar = function_exists('mb_substr') ? mb_substr($user['full_name'], 0, 1, 'UT
 <div class="form-actions"><button class="btn-primary" type="submit"><?= $editing ? 'Lưu thay đổi' : 'Tạo khóa học' ?></button><a class="cancel" href="<?= e(tc_query_url()) ?>">Hủy</a></div>
 </form></section>
 <?php endif; ?>
-<section class="stats"><div class="stat"><div><span>Tổng khóa học</span><strong><?= (int)$stats['total'] ?></strong></div><b>▤</b></div><div class="stat"><div><span>Đã công khai</span><strong><?= (int)$stats['published'] ?></strong></div><b>✓</b></div><div class="stat"><div><span>Bản nháp</span><strong><?= (int)$stats['draft'] ?></strong></div><b>✎</b></div></section>
+<section class="stats">
+    <div class="stat"><div><span>Tổng khóa học</span><strong><?= (int)$stats['total'] ?></strong></div><span class="stat-icon" aria-hidden="true"><?= bf_icon('courses') ?></span></div>
+    <div class="stat"><div><span>Đã công khai</span><strong><?= (int)$stats['published'] ?></strong></div><span class="stat-icon" style="background:#dcfce7;color:#166534" aria-hidden="true"><?= bf_icon('check') ?></span></div>
+    <div class="stat"><div><span>Bản nháp</span><strong><?= (int)$stats['draft'] ?></strong></div><span class="stat-icon" style="background:#fef3c7;color:#b45309" aria-hidden="true"><?= bf_icon('edit') ?></span></div>
+</section>
 <section class="panel"><form class="filter" method="GET" action="<?= e(tc_query_url()) ?>"><input name="q" type="search" maxlength="100" placeholder="Tìm tên khóa học hoặc danh mục..." value="<?= e($search) ?>" aria-label="Tìm kiếm"><select name="status" aria-label="Lọc trạng thái"><option value="all" <?= $status==='all'?'selected':'' ?>>Tất cả trạng thái</option><option value="published" <?= $status==='published'?'selected':'' ?>>Đã công khai</option><option value="draft" <?= $status==='draft'?'selected':'' ?>>Bản nháp</option></select><button type="submit" class="btn-primary">Tìm kiếm</button></form><div class="result">Tìm thấy <?= (int)$pagination['total_items'] ?> khóa học<?php if ($search!=='' || $status!=='all'): ?><a href="<?= e(tc_query_url()) ?>">Xóa bộ lọc</a><?php endif; ?></div></section>
 <?php if ($listError): ?><div class="alert alert-error">Không thể tải danh sách khóa học. Hãy kiểm tra database và các bảng của giai đoạn 2, 3.</div><?php endif; ?>
 <section class="cards" aria-label="Danh sách khóa học">
@@ -323,7 +296,11 @@ $avatar = function_exists('mb_substr') ? mb_substr($user['full_name'], 0, 1, 'UT
 <?php foreach ($rows as $course): ?>
 <?php $courseId=(int)$course['id'];$image=tc_thumb_url($course['thumbnail']); ?>
 <article class="course"><div class="thumb"><?php if ($image): ?><img src="<?= e($image) ?>" alt="Ảnh khóa học <?= e($course['title']) ?>" loading="lazy"><?php else: ?>&lt;/&gt;<?php endif; ?><span class="status <?= $course['status']==='published'?'published':'' ?>"><?= $course['status']==='published'?'Công khai':'Bản nháp' ?></span></div>
-<div class="course-body"><span class="tag"><?= e($course['category'] ?: tc_label($course['level'])) ?></span><h3><?= e($course['title']) ?></h3><p class="desc"><?= e(truncate_text((string)($course['description'] ?? ''),105)) ?></p><div class="numbers"><span>👥 <?= (int)$course['student_count'] ?> học viên</span><span>📚 <?= (int)$course['chapter_count'] ?> chương</span><span>📖 <?= (int)$course['lesson_count'] ?> bài học</span></div>
+<div class="course-body"><span class="tag"><?= e($course['category'] ?: tc_label($course['level'])) ?></span><h3><?= e($course['title']) ?></h3><p class="desc"><?= e(truncate_text((string)($course['description'] ?? ''),105)) ?></p><div class="numbers">
+    <span style="display:inline-flex;align-items:center;gap:4px"><?= bf_icon('users') ?> <?= (int)$course['student_count'] ?> học viên</span>
+    <span style="display:inline-flex;align-items:center;gap:4px"><?= bf_icon('courses') ?> <?= (int)$course['chapter_count'] ?> chương</span>
+    <span style="display:inline-flex;align-items:center;gap:4px"><?= bf_icon('lesson') ?> <?= (int)$course['lesson_count'] ?> bài học</span>
+</div>
 <div class="actions"><a class="button" href="<?= e(tc_query_url(['mode'=>'edit','id'=>$courseId])) ?>">Chỉnh sửa</a>
 <a class="button" href="<?= e(app_url('teacher/lessons.php?course_id='.$courseId)) ?>">Bài giảng</a>
 <?php if($course['level']!=='beginner'): ?><a class="button" href="<?= e(app_url('teacher/learning-paths.php?course_id='.$courseId)) ?>">Điều kiện mở khóa</a><?php endif; ?>
@@ -339,17 +316,5 @@ $avatar = function_exists('mb_substr') ? mb_substr($user['full_name'], 0, 1, 'UT
 <?php if ($current<$total): ?><a class="page-link" href="<?= e(tc_query_url(['q'=>$search,'status'=>$status,'page'=>$current+1])) ?>">→</a><?php endif; ?>
 </nav>
 <?php endif; ?>
-</main></div></div>
-<script>
-const menu=document.getElementById('menuBtn'),sidebar=document.getElementById('sidebar'),overlay=document.getElementById('overlay');
-function toggleMenu(open){sidebar.classList.toggle('open',open);overlay.classList.toggle('show',open);menu.setAttribute('aria-expanded',String(open))}
-menu.addEventListener('click',()=>toggleMenu(!sidebar.classList.contains('open')));
-overlay.addEventListener('click',()=>toggleMenu(false));
-document.addEventListener('keydown',e=>{if(e.key==='Escape')toggleMenu(false)});
-window.addEventListener('resize',()=>{if(window.innerWidth>900)toggleMenu(false)});
-</script>
-<script>window.BF_LEGACY={role:'teacher',base:<?= json_encode(rtrim(BASE_URL, '/')) ?>};</script>
-<script src="<?= e(app_url('js/bf-legacy-fixes.js')) ?>" defer></script>
-
-<script src="<?= e(app_url('js/bf-ux-refresh.js')) ?>" defer></script>
-</body></html>
+</main>
+<?php require_once __DIR__ . '/../views/layouts/portal_foot.php'; ?>

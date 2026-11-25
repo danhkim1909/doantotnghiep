@@ -2,6 +2,8 @@
 /** BrightFuture - Admin / Quan ly nguoi dung. PHP 8+, MySQL 8+. */
 
 require_once __DIR__ . '/../includes/permissions.php';
+require_once __DIR__ . '/../includes/portal_ui.php';
+require_once __DIR__ . '/../includes/icons.php';
 $admin = require_role(ROLE_ADMIN);
 header('Cache-Control: no-store, private, no-cache, must-revalidate');
 header('Pragma: no-cache');
@@ -41,7 +43,43 @@ if (is_post()) {
     require_csrf();
     $action = get_post('action');
     $targetId = positive_int($_POST['user_id'] ?? null);
-    if ($targetId <= 0 || !in_array($action, ['update', 'delete'], true)) {
+
+    if ($action === 'approve_teacher' || $action === 'reject_teacher') {
+        $appId = positive_int($_POST['app_id'] ?? null);
+        if (!$appId) {
+            $errors[] = 'Mã đơn đăng ký giảng viên không hợp lệ.';
+        } else {
+            try {
+                $pdo->beginTransaction();
+                $stmtApp = $pdo->prepare('SELECT id, user_id, status FROM bf_teacher_applications WHERE id = ? FOR UPDATE');
+                $stmtApp->execute([$appId]);
+                $app = $stmtApp->fetch();
+                if (!$app || $app['status'] !== 'pending') {
+                    throw new DomainException('Đơn đăng ký không tồn tại hoặc đã được xử lý trước đó.');
+                }
+                $appUserId = (int)$app['user_id'];
+                if ($action === 'approve_teacher') {
+                    $pdo->prepare("UPDATE users SET role = 'teacher' WHERE id = ?")->execute([$appUserId]);
+                    $pdo->prepare("UPDATE bf_teacher_applications SET status = 'approved', reviewed_by = ?, reviewed_at = NOW() WHERE id = ?")
+                        ->execute([(int)$admin['id'], $appId]);
+                    $message = 'Đã phê duyệt tài khoản Giảng viên thành công.';
+                    $actionType = 'teacher_application.approved';
+                } else {
+                    $pdo->prepare("UPDATE bf_teacher_applications SET status = 'rejected', reviewed_by = ?, reviewed_at = NOW() WHERE id = ?")
+                        ->execute([(int)$admin['id'], $appId]);
+                    $message = 'Đã từ chối đơn đăng ký giảng viên.';
+                    $actionType = 'teacher_application.rejected';
+                }
+                $pdo->commit();
+                bf_audit_log($actionType, 'user', $appUserId, ['app_id' => $appId]);
+                set_flash('success', $message);
+                redirect('admin/users.php');
+            } catch (Throwable $exc) {
+                if ($pdo->inTransaction()) $pdo->rollBack();
+                $errors[] = $exc instanceof DomainException ? $exc->getMessage() : 'Không thể xử lý đơn đăng ký. Vui lòng thử lại.';
+            }
+        }
+    } elseif ($targetId <= 0 || !in_array($action, ['update', 'delete', 'restore'], true)) {
         $errors[] = 'Yêu cầu không hợp lệ.';
     } else {
         try {
@@ -56,7 +94,11 @@ if (is_post()) {
                 throw new DomainException('Không thể sửa vai trò, thông tin hoặc xóa chính tài khoản Admin đang đăng nhập tại trang này.');
             }
             $deps = bf_user_dependencies($pdo, $targetId);
-            if ($action === 'update') {
+            if ($action === 'restore') {
+                $stmt = $pdo->prepare('UPDATE users SET deleted_at = NULL WHERE id = ?');
+                $stmt->execute([$targetId]);
+                $message = 'Đã khôi phục tài khoản.';
+            } elseif ($action === 'update') {
                 $nameRaw = $_POST['full_name'] ?? null;
                 $emailRaw = $_POST['email'] ?? null;
                 $roleRaw = $_POST['role'] ?? null;
@@ -97,16 +139,25 @@ if (is_post()) {
                 $message = 'Đã cập nhật tài khoản thành công.';
             } else {
                 if ($target['role'] === ROLE_ADMIN) {
-                    throw new DomainException('Không xóa Admin qua trang này. Hãy quản lý quyền trước khi xóa.');
+                    throw new DomainException('Không lưu trữ Admin qua trang này.');
                 }
-                if (array_sum($deps) > 0) {
-                    throw new DomainException('Không thể xóa tài khoản có khóa học, đăng ký học, tiến độ, bài nộp hoặc lịch sử chấm bài. Hãy xử lý dữ liệu liên quan trước.');
-                }
-                $stmt = $pdo->prepare('DELETE FROM users WHERE id = ?');
+                $stmt = $pdo->prepare('UPDATE users SET deleted_at = NOW() WHERE id = ? AND deleted_at IS NULL');
                 $stmt->execute([$targetId]);
-                $message = 'Đã xóa tài khoản không có dữ liệu liên quan.';
+                $message = 'Đã lưu trữ tài khoản.';
             }
             $pdo->commit();
+            bf_audit_log(
+                $action === 'delete' ? 'user.archive' : ($action === 'restore' ? 'user.restore' : 'user.update'),
+                'user',
+                $targetId,
+                $action === 'update'
+                    ? [
+                        'before_role' => (string) $target['role'],
+                        'after_role' => $role,
+                        'email_changed' => (string) $target['email'] !== $email,
+                    ]
+                    : ['email' => (string) $target['email']]
+            );
             set_flash('success', $message);
             redirect('admin/users.php');
         } catch (Throwable $exc) {
@@ -127,17 +178,24 @@ $q = get_query('q');
 $q = function_exists('mb_substr') ? mb_substr($q, 0, 100, 'UTF-8') : substr($q, 0, 100);
 $roleFilter = get_query('role', 'all');
 if (!in_array($roleFilter, ['all', ROLE_STUDENT, ROLE_TEACHER, ROLE_ADMIN], true)) $roleFilter = 'all';
+$archiveFilter = get_query('archive', 'active');
+if (!in_array($archiveFilter, ['active', 'deleted', 'all'], true)) $archiveFilter = 'active';
 $page = positive_int($_GET['page'] ?? null, 1);
 $stats = ['student' => 0, 'teacher' => 0, 'admin' => 0];
 $records = [];
 $pagination = paginate(0, $page, 10);
 $listError = false;
 try {
-    foreach ($pdo->query('SELECT role, COUNT(*) AS total FROM users GROUP BY role') as $r) {
+    foreach ($pdo->query("SELECT role, COUNT(*) AS total FROM users WHERE deleted_at IS NULL GROUP BY role") as $r) {
         if (array_key_exists($r['role'], $stats)) $stats[$r['role']] = (int)$r['total'];
     }
     $where = ['1=1'];
     $params = [];
+    if ($archiveFilter === 'active') {
+        $where[] = 'deleted_at IS NULL';
+    } elseif ($archiveFilter === 'deleted') {
+        $where[] = 'deleted_at IS NOT NULL';
+    }
     if ($roleFilter !== 'all') { $where[] = 'role = :role'; $params['role'] = $roleFilter; }
     if ($q !== '') {
         $safeLike = str_replace(['!', '%', '_'], ['!!', '!%', '!_'], $q);
@@ -150,7 +208,7 @@ try {
     foreach ($params as $k => $v) $stmt->bindValue(':' . $k, $v, PDO::PARAM_STR);
     $stmt->execute();
     $pagination = paginate((int)$stmt->fetchColumn(), $page, 10);
-    $stmt = $pdo->prepare("SELECT id, full_name, email, role, created_at FROM users WHERE $whereSql ORDER BY created_at DESC, id DESC LIMIT :lim OFFSET :off");
+    $stmt = $pdo->prepare("SELECT id, full_name, email, role, created_at, deleted_at FROM users WHERE $whereSql ORDER BY created_at DESC, id DESC LIMIT :lim OFFSET :off");
     foreach ($params as $k => $v) $stmt->bindValue(':' . $k, $v, PDO::PARAM_STR);
     $stmt->bindValue(':lim', $pagination['per_page'], PDO::PARAM_INT);
     $stmt->bindValue(':off', $pagination['offset'], PDO::PARAM_INT);
@@ -160,63 +218,143 @@ try {
     error_log('[BrightFuture admin/users list] ' . $exc->getMessage());
     $listError = true;
 }
-$flash = get_flash();
-$name = $admin['full_name'];
-$initial = function_exists('mb_substr') ? mb_substr($name, 0, 1, 'UTF-8') : substr($name, 0, 1);
-?>
-<!doctype html>
-<html lang="vi">
-<head>
-<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Quản lý người dùng | <?= e(APP_NAME) ?></title>
-<style>
-:root{--p:#4f46e5;--purple:#7c3aed;--txt:#172033;--sub:#64748b;--line:#e6eaf2;--bg:#f6f8fc}
-*{box-sizing:border-box}body{margin:0;background:var(--bg);font:14px 'Segoe UI',Arial,sans-serif;color:var(--txt)}a{text-decoration:none;color:inherit}button,input,select{font:inherit}button{cursor:pointer}.sidebar{width:255px;position:fixed;inset:0 auto 0 0;background:white;border-right:1px solid var(--line);display:flex;flex-direction:column;z-index:20}.logo{padding:26px 21px;color:var(--p);font-size:22px;font-weight:800}.logo span{display:inline-grid;place-items:center;background:linear-gradient(135deg,var(--p),var(--purple));border-radius:10px;color:white;width:39px;height:39px;margin-right:9px;font-size:15px}.nav{padding:12px;flex:1;overflow-y:auto}.nav-title{padding:15px 13px 8px;color:#94a3b8;font-size:11px;letter-spacing:1px;font-weight:700}.nav a{display:block;padding:14px;border-radius:10px;color:var(--sub);margin-bottom:4px}.nav a:hover,.nav a.active{background:#eef2ff;color:var(--p);font-weight:700}.side-foot{border-top:1px solid var(--line);padding:17px}.user{display:flex;gap:10px;align-items:center;margin-bottom:12px}.avatar{width:39px;height:39px;border-radius:12px;background:#ede9fe;color:#6d28d9;display:grid;place-items:center;font-weight:800}.user strong{display:block;max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.user small{color:var(--sub)}.logout{background:#fff1f2;color:#be123c;border:0;padding:12px;border-radius:10px;width:100%;font-weight:700}.main{margin-left:255px;min-width:0}.topbar{height:76px;display:flex;align-items:center;justify-content:space-between;background:white;padding:0 34px;border-bottom:1px solid var(--line)}.topbar small{color:var(--sub)}.hamburger{display:none;background:none;border:0;font-size:23px}.container{max-width:1450px;margin:auto;padding:33px}.crumb{color:var(--sub);margin-bottom:17px}.crumb a{color:var(--p)}h1{font-size:29px;margin:0 0 8px}h2{font-size:17px;margin:0}.subtitle{color:var(--sub);margin:0 0 28px;line-height:1.6}.stats{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:17px;margin-bottom:25px}.stat{border:1px solid var(--line);background:white;border-radius:16px;padding:22px}.stat label{color:var(--sub);font-size:13px}.stat strong{display:block;font-size:30px;margin-top:9px}.panel{border:1px solid var(--line);background:white;border-radius:17px;overflow:hidden;margin-bottom:20px}.filter{display:flex;gap:12px;padding:20px;flex-wrap:wrap}.filter input,.filter select,.field input,.field select{height:44px;border:1px solid #dce2ed;border-radius:10px;padding:0 13px;background:white;outline:none;min-width:0}.filter input:focus,.filter select:focus,.field input:focus,.field select:focus{border-color:var(--p);box-shadow:0 0 0 3px #eef2ff}.filter input{flex:1;min-width:220px}.btn{border:0;border-radius:10px;padding:11px 17px;background:var(--p);color:white;font-weight:700}.btn.subtle{background:#eef2ff;color:var(--p)}.btn.danger{background:#be123c}.btn.sm{padding:8px 11px;font-size:12px}.result{padding:0 20px 18px;color:var(--sub)}.scroll{overflow:auto}table{width:100%;border-collapse:collapse;text-align:left;min-width:780px}th{font-size:12px;background:#f8faff;color:var(--sub);font-weight:700}td,th{padding:15px 17px;border-top:1px solid var(--line)}td{vertical-align:middle}td strong{display:block}td small{color:var(--sub)}.pill{display:inline-block;border-radius:30px;padding:6px 11px;font-size:12px;font-weight:700;background:#eef2ff;color:var(--p)}.pill.teacher{background:#f3e8ff;color:#7e22ce}.pill.admin{background:#fef3c7;color:#92400e}.actions{display:flex;gap:7px}.muted{color:var(--sub)}.pagination{display:flex;justify-content:center;gap:7px;flex-wrap:wrap;margin:28px 0}.page{min-width:40px;height:40px;display:inline-grid;place-items:center;background:white;border:1px solid var(--line);border-radius:9px;padding:0 10px}.page.active{background:var(--p);color:white}.notice{padding:14px 17px;border-radius:10px;margin-bottom:18px;background:#fff7ed;border:1px solid #fed7aa;color:#9a3412}.notice.success{background:#f0fdf4;border-color:#bbf7d0;color:#166534}.empty{padding:40px;text-align:center;color:var(--sub)}.backdrop{display:none;position:fixed;inset:0;background:rgba(15,23,42,.52);z-index:50;align-items:center;justify-content:center;padding:20px}.backdrop.open{display:flex}.modal{width:min(100%,510px);background:white;border-radius:18px;padding:25px;max-height:90vh;overflow-y:auto;box-shadow:0 20px 70px #0002}.modal h2{margin-bottom:10px}.modal p{color:var(--sub);line-height:1.6}.field{margin:16px 0}.field label{display:block;margin-bottom:7px;font-weight:600}.field input,.field select{width:100%}.modal-actions{display:flex;justify-content:flex-end;gap:10px;margin-top:22px}.info{font-size:12px;color:var(--sub);line-height:1.6}.overlay{display:none}
-@media(max-width:1000px){.sidebar{transform:translateX(-100%);transition:transform .25s}.sidebar.open{transform:translateX(0)}.overlay.show{display:block;position:fixed;inset:0;background:#0006;z-index:15}.main{margin-left:0}.hamburger{display:block}.container{padding:23px}.topbar{padding:0 23px}}@media(max-width:600px){.stats{grid-template-columns:1fr}.container{padding:17px}.filter{flex-direction:column}.filter input{min-width:0;width:100%}.filter select,.filter .btn{width:100%}h1{font-size:25px}.topbar{padding:0 17px}}
-</style>
-<link rel="stylesheet" href="<?= e(app_url('css/bf-legacy-fixes.css')) ?>">
 
-<link rel="stylesheet" href="<?= e(app_url('css/bf-ux-refresh.css')) ?>">
-</head>
-<body>
-<div class="overlay" id="overlay"></div>
-<aside class="sidebar" id="sidebar">
- <a class="logo" href="<?= e(app_url()) ?>"><span>&lt;/&gt;</span>BrightFuture</a>
- <nav class="nav" aria-label="Quản trị"><div class="nav-title">HỆ THỐNG</div>
- <a href="<?= e(app_url('admin/dashboard.php')) ?>">▦ &nbsp; Tổng quan</a>
- <a class="active" aria-current="page" href="<?= e(app_url('admin/users.php')) ?>">♙ &nbsp; Người dùng</a>
- <a href="<?= e(app_url('admin/courses.php')) ?>">▤ &nbsp; Khóa học</a>
- <a href="<?= e(app_url('admin/reports.php')) ?>">▥ &nbsp; Báo cáo</a>
- <div class="nav-title">LIÊN KẾT</div><a href="<?= e(app_url()) ?>">⌂ &nbsp; Trang chủ</a></nav>
- <div class="side-foot"><div class="user"><div class="avatar"><?= e($initial) ?></div><div><strong><?= e($name) ?></strong><small>Quản trị viên</small></div></div>
- <form method="post" action="<?= e(app_url('logout.php')) ?>"><?= csrf_field() ?><button class="logout" type="submit">Đăng xuất</button></form></div>
-</aside>
-<div class="main"><header class="topbar"><div style="display:flex;align-items:center;gap:15px"><button class="hamburger" id="hamburger" aria-label="Mở menu" aria-expanded="false" aria-controls="sidebar">☰</button><b>Không gian quản trị</b></div><small><?= e($name) ?></small></header>
-<main class="container">
+$teacherApps = [];
+try {
+    $stmtApps = $pdo->query("
+        SELECT
+            app.id AS app_id,
+            app.expertise,
+            app.bio,
+            app.status,
+            app.created_at,
+            u.id AS user_id,
+            u.full_name,
+            u.email
+        FROM bf_teacher_applications app
+        JOIN users u ON u.id = app.user_id
+        WHERE app.status = 'pending' AND u.deleted_at IS NULL
+        ORDER BY app.created_at ASC
+    ");
+    $teacherApps = $stmtApps->fetchAll();
+} catch (Throwable $e) {
+    error_log('[BrightFuture admin/users teacher apps] ' . $e->getMessage());
+}
+$stats['pending_teachers'] = count($teacherApps);
+$flash = get_flash();
+$pageTitle = 'Quản lý người dùng - ' . APP_NAME;
+$portalRole = ROLE_ADMIN;
+$topbarTitle = 'Không gian quản trị';
+$extraCss = ['css/bf-admin-users.css'];
+require_once __DIR__ . '/../views/layouts/portal_head.php';
+?>
+<?= bf_unified_sidebar($admin, 'users') ?>
+<?php require_once __DIR__ . '/../views/layouts/portal_topbar.php'; ?>
+
+<main class="content container">
  <div class="crumb"><a href="<?= e(app_url('admin/dashboard.php')) ?>">Tổng quan</a> / Người dùng</div>
  <h1>Quản lý người dùng</h1><p class="subtitle">Tra cứu, cập nhật thông tin, thay đổi vai trò và quản lý tài khoản hệ thống.</p>
  <?php foreach ($errors as $error): ?><div class="notice" role="alert"><?= e($error) ?></div><?php endforeach; ?>
  <?php if ($flash): ?><div class="notice <?= ($flash['type'] ?? '') === 'success' ? 'success' : '' ?>" role="status"><?= e((string)($flash['message'] ?? '')) ?></div><?php endif; ?>
  <?php if ($listError): ?><div class="notice" role="alert">Không tải được danh sách người dùng. Vui lòng kiểm tra kết nối MySQL.</div><?php endif; ?>
- <section class="stats" aria-label="Thống kê tài khoản">
+ <section class="stats" style="grid-template-columns: repeat(4, minmax(0, 1fr));" aria-label="Thống kê tài khoản">
  <div class="stat"><label>Học viên</label><strong><?= format_number($stats['student']) ?></strong></div>
  <div class="stat"><label>Giáo viên</label><strong><?= format_number($stats['teacher']) ?></strong></div>
  <div class="stat"><label>Quản trị viên</label><strong><?= format_number($stats['admin']) ?></strong></div>
+ <div class="stat" style="<?= $stats['pending_teachers'] > 0 ? 'border-color: #818cf8; background: #fdf4ff;' : '' ?>"><label>Đơn GV chờ duyệt</label><strong style="<?= $stats['pending_teachers'] > 0 ? 'color: #9333ea;' : '' ?>"><?= format_number($stats['pending_teachers']) ?></strong></div>
  </section>
+
+ <?php if (!empty($teacherApps)): ?>
+ <section class="panel" style="border: 2px solid #818cf8; margin-bottom: 24px;">
+  <div style="background: #eef2ff; padding: 16px 20px; border-bottom: 1px solid #c7d2fe; display: flex; justify-content: space-between; align-items: center;">
+   <div>
+    <h2 style="font-size: 16px; font-weight: 700; color: #3730a3; margin: 0;">
+     🎓 Đơn đăng ký Giảng viên chờ phê duyệt (<?= count($teacherApps) ?>)
+    </h2>
+    <p style="margin: 4px 0 0; font-size: 13px; color: #4338ca;">
+     Các ứng viên đã gửi hồ sơ đăng ký giảng viên và đang chờ Ban Quản Trị xem xét kích hoạt.
+    </p>
+   </div>
+   <span class="pill teacher" style="font-size: 13px; padding: 6px 14px;">Chờ duyệt</span>
+  </div>
+  <div class="scroll">
+   <table>
+    <thead>
+     <tr>
+      <th>Ứng viên</th>
+      <th>Chuyên môn giảng dạy</th>
+      <th>Giới thiệu kinh nghiệm</th>
+      <th>Thời gian gửi</th>
+      <th style="text-align: right;">Quyết định</th>
+     </tr>
+    </thead>
+    <tbody>
+     <?php foreach ($teacherApps as $app): ?>
+      <tr>
+       <td>
+        <strong><?= e($app['full_name']) ?></strong>
+        <small><?= e($app['email']) ?></small>
+       </td>
+       <td>
+        <strong style="color: #4f46e5;"><?= e($app['expertise']) ?></strong>
+       </td>
+       <td style="max-width: 320px; font-size: 13px; color: var(--sub);">
+        <?= e($app['bio'] ?: 'Chưa cung cấp mô tả chi tiết.') ?>
+       </td>
+       <td style="white-space: nowrap; font-size: 13px;">
+        <?= e(format_datetime($app['created_at'])) ?>
+       </td>
+       <td>
+        <div class="actions" style="justify-content: flex-end;">
+         <form method="post" action="<?= e(app_url('admin/users.php')) ?>" style="margin: 0;">
+          <?= csrf_field() ?>
+          <input type="hidden" name="action" value="approve_teacher">
+          <input type="hidden" name="app_id" value="<?= (int)$app['app_id'] ?>">
+          <button type="submit" class="btn sm" style="background: #059669;" onclick="return confirm('Bạn có chắc chắn muốn phê duyệt tài khoản này làm Giảng viên chính thức?')">
+           ✓ Phê duyệt
+          </button>
+         </form>
+         <form method="post" action="<?= e(app_url('admin/users.php')) ?>" style="margin: 0;">
+          <?= csrf_field() ?>
+          <input type="hidden" name="action" value="reject_teacher">
+          <input type="hidden" name="app_id" value="<?= (int)$app['app_id'] ?>">
+          <button type="submit" class="btn sm subtle danger" onclick="return confirm('Bạn có chắc muốn từ chối yêu cầu này?')">
+           ✕ Từ chối
+          </button>
+         </form>
+        </div>
+       </td>
+      </tr>
+     <?php endforeach; ?>
+    </tbody>
+   </table>
+  </div>
+ </section>
+ <?php endif; ?>
  <section class="panel">
   <form class="filter" method="get" action="<?= e(app_url('admin/users.php')) ?>">
    <input type="search" name="q" value="<?= e($q) ?>" maxlength="100" placeholder="Tìm theo họ tên hoặc email..." aria-label="Tìm kiếm người dùng">
    <select name="role" aria-label="Lọc vai trò"><option value="all">Tất cả vai trò</option><?php foreach ([ROLE_STUDENT, ROLE_TEACHER, ROLE_ADMIN] as $r): ?><option value="<?= e($r) ?>" <?= $roleFilter === $r ? 'selected' : '' ?>><?= e(bf_role_name($r)) ?></option><?php endforeach; ?></select>
+   <select name="archive" aria-label="Lọc trạng thái lưu trữ">
+    <option value="active" <?= $archiveFilter === 'active' ? 'selected' : '' ?>>Đang hoạt động</option>
+    <option value="deleted" <?= $archiveFilter === 'deleted' ? 'selected' : '' ?>>Đã lưu trữ</option>
+    <option value="all" <?= $archiveFilter === 'all' ? 'selected' : '' ?>>Tất cả</option>
+   </select>
    <button class="btn" type="submit">Tìm kiếm</button><a class="btn subtle" href="<?= e(app_url('admin/users.php')) ?>">Xóa lọc</a>
   </form>
-  <div class="result">Tìm thấy <strong><?= format_number($pagination['total_items']) ?></strong> tài khoản</div>
+  <div class="result">
+   Tìm thấy <strong><?= format_number($pagination['total_items']) ?></strong> tài khoản
+   · <a href="<?= e(app_url('admin/export.php?type=users&' . http_build_query(['q'=>$q,'role'=>$roleFilter,'archive'=>$archiveFilter]))) ?>">Tải CSV</a>
+  </div>
   <div class="scroll"><table><thead><tr><th>Người dùng</th><th>Vai trò</th><th>Ngày đăng ký</th><th>ID</th><th>Thao tác</th></tr></thead><tbody>
-  <?php if (!$records): ?><tr><td colspan="5" class="empty"><?= $listError ? 'Không thể lấy dữ liệu.' : 'Không có tài khoản phù hợp.' ?></td></tr><?php endif; ?>
+  <?php if (!$records): ?><tr><td colspan="5"><?= bf_empty_state('Không có tài khoản phù hợp', 'Hãy thử điều chỉnh từ khóa tìm kiếm hoặc bộ lọc vai trò.', null, null, 'users') ?></td></tr><?php endif; ?>
   <?php foreach ($records as $record): ?>
   <tr><td><strong><?= e($record['full_name']) ?></strong><small><?= e($record['email']) ?></small></td>
   <td><span class="pill <?= e($record['role']) ?>"><?= e(bf_role_name($record['role'])) ?></span></td>
   <td><?= e(format_datetime($record['created_at'])) ?></td><td class="muted">#<?= (int)$record['id'] ?></td>
-  <td><?php if ((int)$record['id'] === (int)$admin['id']): ?><small>Tài khoản hiện tại</small><?php else: ?>
+  <td><?php if ((int)$record['id'] === (int)$admin['id']): ?><small>Tài khoản hiện tại</small><?php elseif (isset($record['deleted_at']) && $record['deleted_at'] !== null): ?>
+   <form method="post" action="<?= e(app_url('admin/users.php')) ?>"><?= csrf_field() ?><input type="hidden" name="action" value="restore"><input type="hidden" name="user_id" value="<?= (int)$record['id'] ?>"><button class="btn sm subtle" type="submit">Khôi phục</button></form>
+  <?php else: ?>
    <div class="actions">
     <button type="button" class="btn subtle sm edit-btn" data-user='<?= e(json_encode(['id'=>(int)$record['id'],'full_name'=>$record['full_name'],'email'=>$record['email'],'role'=>$record['role']], JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT)) ?>'>Sửa</button>
     <button type="button" class="btn danger sm delete-btn" data-id="<?= (int)$record['id'] ?>" data-name="<?= e($record['full_name']) ?>">Xóa</button>
@@ -224,39 +362,89 @@ $initial = function_exists('mb_substr') ? mb_substr($name, 0, 1, 'UTF-8') : subs
   <?php endforeach; ?>
   </tbody></table></div>
  </section>
- <?php if ($pagination['total_pages'] > 1): ?>
- <nav class="pagination" aria-label="Phân trang">
- <?php if ($pagination['has_previous']): ?><a class="page" href="<?= e(bf_user_url(['q'=>$q,'role'=>$roleFilter,'page'=>$pagination['previous_page']])) ?>">←</a><?php endif; ?>
- <?php $from = max(1, $pagination['current_page'] - 2); $to = min($pagination['total_pages'], $from + 4); $from = max(1, $to - 4); ?>
- <?php for ($i=$from; $i<=$to; $i++): ?><a class="page <?= $i === $pagination['current_page'] ? 'active' : '' ?>" <?= $i === $pagination['current_page'] ? 'aria-current="page"' : '' ?> href="<?= e(bf_user_url(['q'=>$q,'role'=>$roleFilter,'page'=>$i])) ?>"><?= $i ?></a><?php endfor; ?>
- <?php if ($pagination['has_next']): ?><a class="page" href="<?= e(bf_user_url(['q'=>$q,'role'=>$roleFilter,'page'=>$pagination['next_page']])) ?>">→</a><?php endif; ?>
- </nav><?php endif; ?>
-</main></div>
-<div class="backdrop" id="editBackdrop" role="presentation"><section class="modal" role="dialog" aria-modal="true" aria-labelledby="editTitle"><h2 id="editTitle">Chỉnh sửa tài khoản</h2><p>Thay đổi họ tên, email hoặc vai trò. Các tài khoản có dữ liệu học tập/giảng dạy có thể bị giới hạn đổi vai trò.</p>
-<form method="post" action="<?= e(app_url('admin/users.php')) ?>" id="editForm">
-<?= csrf_field() ?><input type="hidden" name="action" value="update"><input type="hidden" name="user_id" id="editId">
-<div class="field"><label for="editName">Họ và tên</label><input id="editName" name="full_name" maxlength="120" required></div>
-<div class="field"><label for="editEmail">Email</label><input id="editEmail" name="email" type="email" maxlength="190" required></div>
-<div class="field"><label for="editRole">Vai trò</label><select id="editRole" name="role" required><option value="student">Học viên</option><option value="teacher">Giáo viên</option><option value="admin">Quản trị viên</option></select></div>
-<p class="info">Việc cấp quyền Admin là thao tác nhạy cảm. Chỉ cấp cho người được ủy quyền.</p><div class="modal-actions"><button class="btn subtle close-modal" type="button">Hủy</button><button class="btn" type="submit">Lưu thay đổi</button></div></form></section></div>
-<div class="backdrop" id="deleteBackdrop" role="presentation"><section class="modal" role="dialog" aria-modal="true" aria-labelledby="deleteTitle"><h2 id="deleteTitle">Xác nhận xóa tài khoản</h2><p>Bạn muốn xóa <strong id="deleteName"></strong>? Chỉ có thể xóa tài khoản không có dữ liệu liên quan. Thao tác không thể hoàn tác.</p>
-<form method="post" action="<?= e(app_url('admin/users.php')) ?>"><?= csrf_field() ?><input type="hidden" name="action" value="delete"><input type="hidden" name="user_id" id="deleteId"><div class="modal-actions"><button type="button" class="btn subtle close-modal">Hủy</button><button type="submit" class="btn danger">Xác nhận xóa</button></div></form></section></div>
+ <?= bf_pagination($pagination, 'admin/users.php', ['q' => $q, 'role' => $roleFilter]) ?>
+</main>
+
+<div class="backdrop" id="editBackdrop" role="presentation">
+  <section class="modal" role="dialog" aria-modal="true" aria-labelledby="editTitle">
+    <h2 id="editTitle">Chỉnh sửa tài khoản</h2>
+    <p>Thay đổi họ tên, email hoặc vai trò. Các tài khoản có dữ liệu học tập/giảng dạy có thể bị giới hạn đổi vai trò.</p>
+    <form method="post" action="<?= e(app_url('admin/users.php')) ?>" id="editForm">
+      <?= csrf_field() ?>
+      <input type="hidden" name="action" value="update">
+      <input type="hidden" name="user_id" id="editId">
+      <div class="field">
+        <label for="editName">Họ và tên</label>
+        <input id="editName" name="full_name" maxlength="120" required>
+      </div>
+      <div class="field">
+        <label for="editEmail">Email</label>
+        <input id="editEmail" name="email" type="email" maxlength="190" required>
+      </div>
+      <div class="field">
+        <label for="editRole">Vai trò</label>
+        <select id="editRole" name="role" required>
+          <option value="student">Học viên</option>
+          <option value="teacher">Giáo viên</option>
+          <option value="admin">Quản trị viên</option>
+        </select>
+      </div>
+      <p class="info">Việc cấp quyền Admin là thao tác nhạy cảm. Chỉ cấp cho người được ủy quyền.</p>
+      <div class="modal-actions">
+        <button class="btn subtle close-modal" type="button">Hủy</button>
+        <button class="btn" type="submit">Lưu thay đổi</button>
+      </div>
+    </form>
+  </section>
+</div>
+
+<div class="backdrop" id="deleteBackdrop" role="presentation">
+  <section class="modal" role="dialog" aria-modal="true" aria-labelledby="deleteTitle">
+    <h2 id="deleteTitle">Xác nhận xóa tài khoản</h2>
+    <p>Bạn muốn xóa <strong id="deleteName"></strong>? Chỉ có thể xóa tài khoản không có dữ liệu liên quan. Thao tác không thể hoàn tác.</p>
+    <form method="post" action="<?= e(app_url('admin/users.php')) ?>">
+      <?= csrf_field() ?>
+      <input type="hidden" name="action" value="delete">
+      <input type="hidden" name="user_id" id="deleteId">
+      <div class="modal-actions">
+        <button type="button" class="btn subtle close-modal">Hủy</button>
+        <button type="submit" class="btn danger">Xác nhận xóa</button>
+      </div>
+    </form>
+  </section>
+</div>
+
 <script>
 (()=>{
- const sidebar=document.getElementById('sidebar'),overlay=document.getElementById('overlay'),hamburger=document.getElementById('hamburger');
- const menu=(open)=>{sidebar.classList.toggle('open',open);overlay.classList.toggle('show',open);hamburger.setAttribute('aria-expanded',String(open));};
- hamburger.addEventListener('click',()=>menu(!sidebar.classList.contains('open')));overlay.addEventListener('click',()=>menu(false));
  const edit=document.getElementById('editBackdrop'),del=document.getElementById('deleteBackdrop');
- const close=()=>{edit.classList.remove('open');del.classList.remove('open');};
+ const close=()=>{
+   if(edit) edit.classList.remove('open');
+   if(del) del.classList.remove('open');
+ };
  document.querySelectorAll('.close-modal').forEach(x=>x.addEventListener('click',close));
- [edit,del].forEach(x=>x.addEventListener('click',e=>{if(e.target===x)close();}));
- document.querySelectorAll('.edit-btn').forEach(btn=>btn.addEventListener('click',()=>{try{const u=JSON.parse(btn.dataset.user);document.getElementById('editId').value=u.id;document.getElementById('editName').value=u.full_name;document.getElementById('editEmail').value=u.email;document.getElementById('editRole').value=u.role;edit.classList.add('open');document.getElementById('editName').focus();}catch(e){alert('Không thể mở dữ liệu tài khoản.');}}));
- document.querySelectorAll('.delete-btn').forEach(btn=>btn.addEventListener('click',()=>{document.getElementById('deleteId').value=btn.dataset.id;document.getElementById('deleteName').textContent=btn.dataset.name;del.classList.add('open');}));
- document.addEventListener('keydown',e=>{if(e.key==='Escape'){close();menu(false);}});
+ [edit,del].forEach(x=>{if(x) x.addEventListener('click',e=>{if(e.target===x)close();});});
+ document.querySelectorAll('.edit-btn').forEach(btn=>btn.addEventListener('click',()=>{
+   try{
+     const u=JSON.parse(btn.dataset.user);
+     document.getElementById('editId').value=u.id;
+     document.getElementById('editName').value=u.full_name;
+     document.getElementById('editEmail').value=u.email;
+     document.getElementById('editRole').value=u.role;
+     edit.classList.add('open');
+     document.getElementById('editName').focus();
+   }catch(e){
+     alert('Không thể mở dữ liệu tài khoản.');
+   }
+ }));
+ document.querySelectorAll('.delete-btn').forEach(btn=>btn.addEventListener('click',()=>{
+   document.getElementById('deleteId').value=btn.dataset.id;
+   document.getElementById('deleteName').textContent=btn.dataset.name;
+   del.classList.add('open');
+ }));
+ document.addEventListener('keydown',e=>{if(e.key==='Escape'){close();}});
 })();
 </script>
-<script>window.BF_LEGACY={role:'admin',base:<?= json_encode(rtrim(BASE_URL, '/')) ?>};</script>
-<script src="<?= e(app_url('js/bf-legacy-fixes.js')) ?>" defer></script>
 
-<script src="<?= e(app_url('js/bf-ux-refresh.js')) ?>" defer></script>
-</body></html>
+<?php require_once __DIR__ . '/../views/layouts/portal_foot.php'; ?>
+</body>
+</html>

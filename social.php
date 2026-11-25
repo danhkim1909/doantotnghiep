@@ -1,6 +1,7 @@
 <?php
 /** BrightFuture: friend invitations, direct and group messages (PHP 8.0 compatible). */
 require_once __DIR__.'/includes/portal_ui.php';
+require_once __DIR__.'/includes/rate_limit.php';
 $user=require_login(); $uid=(int)$user['id']; $pdo=db(); $errors=[];
 $tab=get_query('tab','friends'); if(!in_array($tab,['friends','chat','groups','search'],true))$tab='friends';
 $peer=positive_int($_GET['peer']??0);$group=positive_int($_GET['group']??0); $query=clean_text(get_query('q'),100);
@@ -37,6 +38,7 @@ if(is_post()){
   }elseif($action==='direct'){
    if(!bf_social_friend($pdo,$uid,$target))throw new DomainException('Chỉ được nhắn tin với bạn bè đã xác nhận.');
    $text=trim((string)($_POST['body']??''));if($text===''||bf_social_len($text)>2000)throw new DomainException('Tin nhắn phải có từ 1 đến 2.000 ký tự.');
+   if(!bf_rate_limit_consume($pdo,$uid,'social_chat',BF_SOCIAL_CHAT_RATE_LIMIT,BF_USER_RATE_LIMIT_WINDOW_SECONDS))throw new DomainException('Bạn gửi tin nhắn quá nhanh. Vui lòng chờ một chút.');
    $pdo->prepare('INSERT INTO bf_direct_messages (sender_id,receiver_id,body) VALUES (?,?,?)')->execute([$uid,$target,$text]);
    redirect('social.php?tab=chat&peer='.$target,303);
   }elseif($action==='create_group'){
@@ -65,6 +67,7 @@ if(is_post()){
   }elseif($action==='group_send'){
    if(!bf_social_group_member($pdo,$g,$uid))throw new DomainException('Bạn không thuộc nhóm chat này.');
    $text=trim((string)($_POST['body']??''));if($text===''||bf_social_len($text)>2000)throw new DomainException('Tin nhắn phải có từ 1 đến 2.000 ký tự.');
+   if(!bf_rate_limit_consume($pdo,$uid,'social_chat',BF_SOCIAL_CHAT_RATE_LIMIT,BF_USER_RATE_LIMIT_WINDOW_SECONDS))throw new DomainException('Bạn gửi tin nhắn quá nhanh. Vui lòng chờ một chút.');
    $pdo->prepare('INSERT INTO bf_group_messages(group_id,sender_id,body) VALUES(?,?,?)')->execute([$g,$uid,$text]);
    redirect('social.php?tab=groups&group='.$g,303);
   }else{throw new DomainException('Thao tác không hợp lệ.');}
@@ -86,18 +89,18 @@ try{
   $s=$pdo->prepare('SELECT m.*,u.full_name FROM bf_group_messages m JOIN users u ON u.id=m.sender_id WHERE m.group_id=? ORDER BY m.id DESC LIMIT 100');$s->execute([$group]);$groupRows=array_reverse($s->fetchAll());usort($groupRows,static function($a,$b){return strcmp((string)$a['created_at'],(string)$b['created_at']) ?: ((int)$a['id'] <=>(int)$b['id']);});
  }
 }catch(Throwable $ex){error_log('[social read] '.$ex->getMessage());$errors[]='Chức năng cộng đồng chưa được cài database. Vui lòng nhập database/20261029_social_meetings.sql trong phpMyAdmin.';}
-$flash=get_flash();bf_portal_begin($user,'social','Bạn bè & tin nhắn');
+$flash=get_flash();bf_portal_begin($user,'social','Bạn bè & tin nhắn',['css/bf-social.css']);
 ?>
-<header class="bf-header"><div><h1>Cộng đồng BrightFuture</h1><p>Kết bạn, trao đổi kiến thức lập trình và học nhóm cùng nhau.</p></div><a class="bf-btn" href="<?=e(app_url('rooms.php'))?>">◉ Mở phòng gọi nhóm</a></header>
+<header class="bf-header"><div><h1>Cộng đồng BrightFuture</h1><p>Kết bạn, trao đổi kiến thức lập trình và học nhóm cùng nhau.</p></div><a class="bf-btn" href="<?=e(app_url('rooms.php'))?>"><?=bf_icon('rooms')?> Mở phòng gọi nhóm</a></header>
 <?php foreach($errors as $er):?><div class="bf-note bf-error" role="alert"><?=e($er)?></div><?php endforeach?>
 <?php if($flash):?><div class="bf-note <?=($flash['type']??'')==='success'?'bf-success':'bf-error'?>"><?=e($flash['message']??'')?></div><?php endif?>
 <div class="bf-tabs"><a class="<?=$tab==='friends'?'active':''?>" href="?tab=friends">Bạn bè (<?=count($friendRows)?>)<?=count($received)?' · '.count($received).' lời mời':''?></a><a class="<?=$tab==='chat'?'active':''?>" href="?tab=chat">Nhắn tin</a><a class="<?=$tab==='groups'?'active':''?>" href="?tab=groups">Nhóm chat (<?=count($groups)?>)</a><a class="<?=$tab==='search'?'active':''?>" href="?tab=search">Tìm người dùng</a></div>
 <?php if($tab==='friends'):?>
 <div class="bf-grid"><section class="bf-panel"><h2>Lời mời nhận được</h2><?php if(!$received):?><p class="bf-subtle">Chưa có lời mời.</p><?php endif?><?php foreach($received as $p):?><div class="bf-row"><div><strong><?=e($p['full_name'])?></strong><small><?=e(bf_social_role($p['role']))?></small></div><div class="bf-actions"><?php foreach(['accept'=>'Chấp nhận','reject'=>'Từ chối'] as $a=>$label):?><form method="post"><?=csrf_field()?><input type="hidden" name="action" value="<?=$a?>"><input type="hidden" name="target" value="<?=(int)$p['id']?>"><button class="<?=$a==='accept'?'bf-btn':'bf-muted'?>" type="submit"><?=$label?></button></form><?php endforeach?></div></div><?php endforeach?><h2 style="margin-top:25px">Lời mời đã gửi</h2><?php if(!$sent):?><p class="bf-subtle">Không có lời mời đang chờ.</p><?php endif?><?php foreach($sent as $p):?><div class="bf-row"><span><?=e($p['full_name'])?></span><span class="bf-chip">Đang chờ</span></div><?php endforeach?></section>
-<section class="bf-panel"><div class="bf-friends-heading"><h2>Danh sách bạn bè</h2><button type="button" class="bf-muted bf-block-list-trigger" id="openBlockList" aria-haspopup="dialog" aria-controls="blockListModal">⊘ Danh sách chặn<?php if($blocks):?> (<?=count($blocks)?>)<?php endif?></button></div><?php if(!$friendRows):?><p class="bf-empty">Chưa có bạn bè. Hãy tìm và gửi lời mời kết bạn.</p><a class="bf-btn" href="?tab=search">Tìm bạn bè</a><?php endif?><?php foreach($friendRows as $p):?><div class="bf-row"><div><strong><?=e($p['full_name'])?></strong><small><?=e(bf_social_role($p['role']))?></small></div><div class="bf-actions"><a class="bf-btn" href="?tab=chat&peer=<?=(int)$p['id']?>">Nhắn tin</a><form method="post" onsubmit="return confirm('Hủy kết bạn?')"><?=csrf_field()?><input type="hidden" name="action" value="unfriend"><input type="hidden" name="target" value="<?=(int)$p['id']?>"><button class="bf-muted" type="submit">Hủy kết bạn</button></form></div></div><?php endforeach?></section></div>
+<section class="bf-panel"><div class="bf-friends-heading"><h2>Danh sách bạn bè</h2><button type="button" class="bf-muted bf-block-list-trigger" id="openBlockList" aria-haspopup="dialog" aria-controls="blockListModal"><?=bf_icon('close')?> Danh sách chặn<?php if($blocks):?> (<?=count($blocks)?>)<?php endif?></button></div><?php if(!$friendRows):?><p class="bf-empty">Chưa có bạn bè. Hãy tìm và gửi lời mời kết bạn.</p><a class="bf-btn" href="?tab=search">Tìm bạn bè</a><?php endif?><?php foreach($friendRows as $p):?><div class="bf-row"><div><strong><?=e($p['full_name'])?></strong><small><?=e(bf_social_role($p['role']))?></small></div><div class="bf-actions"><a class="bf-btn" href="?tab=chat&peer=<?=(int)$p['id']?>">Nhắn tin</a><form method="post" onsubmit="return confirm('Hủy kết bạn?')"><?=csrf_field()?><input type="hidden" name="action" value="unfriend"><input type="hidden" name="target" value="<?=(int)$p['id']?>"><button class="bf-muted" type="submit">Hủy kết bạn</button></form></div></div><?php endforeach?></section></div>
 <div class="bf-modal-backdrop" id="blockListModal" hidden>
   <section class="bf-modal-dialog" role="dialog" aria-modal="true" aria-labelledby="blockListTitle" tabindex="-1">
-    <div class="bf-modal-head"><div><h2 id="blockListTitle">Danh sách chặn</h2><p class="bf-subtle">Quản lý những tài khoản bạn đã chặn.</p></div><button type="button" class="bf-modal-close" id="closeBlockList" aria-label="Đóng danh sách chặn">×</button></div>
+    <div class="bf-modal-head"><div><h2 id="blockListTitle">Danh sách chặn</h2><p class="bf-subtle">Quản lý những tài khoản bạn đã chặn.</p></div><button type="button" class="bf-modal-close" id="closeBlockList" aria-label="Đóng danh sách chặn"><?=bf_icon('close')?></button></div>
     <div class="bf-modal-body">
       <?php if(!$blocks):?><div class="bf-block-empty">Bạn chưa chặn người dùng nào.</div><?php endif?>
       <?php foreach($blocks as $p):?><form class="bf-row bf-block-row" method="post" onsubmit="return confirm('Bỏ chặn tài khoản này?')"><?=csrf_field()?><div><strong><?=e($p['full_name'])?></strong><small>Tài khoản đã chặn</small></div><input type="hidden" name="action" value="unblock"><input type="hidden" name="target" value="<?=(int)$p['id']?>"><button type="submit" class="bf-muted">Bỏ chặn</button></form><?php endforeach?>
@@ -112,25 +115,6 @@ $flash=get_flash();bf_portal_begin($user,'social','Bạn bè & tin nhắn');
 <div class="bf-grid"><section class="bf-panel"><h2>Nhóm của tôi</h2><?php foreach($groups as $gr):?><a class="bf-row" href="?tab=groups&group=<?=(int)$gr['id']?>"><div><strong><?=e($gr['title'])?></strong><small><?=$gr['total']?> thành viên</small></div><span>→</span></a><?php endforeach?><h2 style="margin-top:22px">+ Tạo nhóm chat</h2><form method="post"><?=csrf_field()?><input type="hidden" name="action" value="create_group"><label class="bf-field">Tên nhóm<input class="bf-input" name="title" minlength="3" maxlength="120" required placeholder="Ví dụ: Nhóm học Python"></label><button class="bf-btn">Tạo nhóm</button></form></section><section class="bf-panel"><?php if(!$selectedGroup):?><div class="bf-empty">Chọn nhóm để xem nội dung hoặc tạo nhóm mới.</div><?php else:?><div class="bf-row"><div><h2><?=e($selectedGroup['title'])?></h2><small><?=count($members)?> thành viên</small></div><?php if((int)$selectedGroup['owner_id']===$uid):?><form method="post" onsubmit="return confirm('Xóa toàn bộ nhóm và tin nhắn?')"><?=csrf_field()?><input type="hidden" name="action" value="delete_group"><input type="hidden" name="group" value="<?=$group?>"><button class="bf-muted bf-danger">Xóa nhóm</button></form><?php else:?><form method="post" onsubmit="return confirm('Rời khỏi nhóm?')"><?=csrf_field()?><input type="hidden" name="action" value="leave"><input type="hidden" name="group" value="<?=$group?>"><button class="bf-muted">Rời nhóm</button></form><?php endif?></div>
 <div class="bf-chat" id="chatWindow" data-kind="group" data-id="<?=$group?>"><?php foreach($groupRows as $m):?><div class="bf-bubble <?=(int)$m['sender_id']===$uid?'mine':''?>" data-message-id="<?=(int)$m['id']?>"><small><?=e($m['full_name'])?> · <?=e($m['created_at'])?></small><?=e($m['body'])?></div><?php endforeach?></div><form class="bf-message-form" method="post"><?=csrf_field()?><input type="hidden" name="action" value="group_send"><input type="hidden" name="group" value="<?=$group?>"><input name="body" required class="bf-input" maxlength="2000" placeholder="Nhập tin nhắn nhóm..."><button class="bf-btn">Gửi →</button></form><h2 style="margin-top:25px">Thành viên</h2><?php foreach($members as $m):?><div class="bf-row"><span><?=e($m['full_name'])?></span><?php if((int)$m['id']===(int)$selectedGroup['owner_id']):?><span class="bf-chip">Trưởng nhóm</span><?php elseif((int)$selectedGroup['owner_id']===$uid):?><form method="post" onsubmit="return confirm('Xóa thành viên khỏi nhóm?')"><?=csrf_field()?><input type="hidden" name="action" value="remove_member"><input type="hidden" name="group" value="<?=$group?>"><input type="hidden" name="target" value="<?=(int)$m['id']?>"><button class="bf-muted bf-danger">Xóa</button></form><?php endif?></div><?php endforeach?><form method="post" class="bf-form" style="margin-top:17px"><?=csrf_field()?><input type="hidden" name="action" value="invite"><input type="hidden" name="group" value="<?=$group?>"><select class="bf-input" name="target" required><option value="">Mời một người bạn...</option><?php foreach($friendRows as $f):?><?php $memberIds=array_column($members,'id');if(in_array($f['id'],$memberIds))continue;?><option value="<?=(int)$f['id']?>"><?=e($f['full_name'])?></option><?php endforeach?></select><button class="bf-btn">+ Thêm thành viên</button></form><?php endif?></section></div>
 <?php endif?>
-<style>
-.bf-friends-heading{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:14px}
-.bf-friends-heading h2{margin:0}
-.bf-block-list-trigger{white-space:nowrap;display:inline-flex;align-items:center;gap:6px}
-.bf-modal-backdrop[hidden]{display:none!important}
-.bf-modal-backdrop{position:fixed;inset:0;z-index:9999;background:rgba(15,23,42,.52);display:flex;align-items:center;justify-content:center;padding:20px}
-.bf-modal-dialog{background:#fff;width:min(560px,100%);max-height:min(80vh,720px);border-radius:17px;box-shadow:0 24px 80px rgba(18,23,48,.25);overflow:hidden;display:flex;flex-direction:column;outline:none}
-.bf-modal-head{padding:22px 24px 16px;border-bottom:1px solid var(--bf-line);display:flex;justify-content:space-between;align-items:flex-start;gap:16px}
-.bf-modal-head h2{margin:0 0 6px;font-size:21px}.bf-modal-head p{margin:0;font-size:13px}
-.bf-modal-close{width:35px;height:35px;flex:none;border:0;border-radius:9px;background:#f1f3fa;color:#334155;font-size:25px;line-height:1;cursor:pointer}
-.bf-modal-close:hover{background:#e6e8fa}.bf-modal-body{padding:12px 24px 24px;overflow-y:auto}
-.bf-block-row{padding:15px 0}.bf-block-row strong,.bf-block-row small{display:block}.bf-block-row small{font-size:12px;color:var(--bf-muted);margin-top:4px}
-.bf-block-empty{text-align:center;color:var(--bf-muted);padding:32px 12px}
-body.bf-modal-open{overflow:hidden}
-/* Messages use normal top-to-bottom flow: oldest above, newest below. */
-.bf-chat{display:flex;flex-direction:column;justify-content:flex-start;overflow-y:auto;overscroll-behavior:contain;scroll-behavior:auto}
-.bf-bubble{flex:0 0 auto}.bf-message-form{position:relative;flex-shrink:0}
-@media(max-width:540px){.bf-friends-heading{align-items:stretch}.bf-block-list-trigger{justify-content:center}.bf-modal-backdrop{padding:12px}.bf-modal-head{padding:18px}.bf-modal-body{padding:10px 18px 20px}}
-</style>
 <script>
 document.addEventListener('DOMContentLoaded',()=>{
  const modal=document.getElementById('blockListModal');

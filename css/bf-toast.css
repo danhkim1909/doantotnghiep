@@ -1,0 +1,123 @@
+/* ====================================================
+   BRIGHTFUTURE - TOAST NOTIFICATION COMPONENT
+   File: css/bf-toast.css
+   Hệ thống thông báo nổi góc màn hình tinh tế, không giật lag
+   ==================================================== */
+
+.bf-toast-container {
+  position: fixed;
+  top: 24px;
+  right: 24px;
+  z-index: 99999;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-width: 380px;
+  width: calc(100% - 48px);
+  pointer-events: none;
+}
+
+.bf-toast {
+  pointer-events: auto;
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 14px 16px;
+  background: #ffffff;
+  color: #172033;
+  border-radius: 12px;
+  box-shadow: 0 12px 36px rgba(23, 32, 51, 0.12), 0 2px 8px rgba(23, 32, 51, 0.04);
+  border: 1px solid #e5eaf3;
+  font-size: 13px;
+  line-height: 1.5;
+  font-family: Inter, "Segoe UI", system-ui, sans-serif;
+  opacity: 0;
+  transform: translateY(-12px) scale(0.97);
+  transition: opacity 0.22s ease, transform 0.22s ease;
+}
+
+.bf-toast.show {
+  opacity: 1;
+  transform: translateY(0) scale(1);
+}
+
+.bf-toast.hide {
+  opacity: 0;
+  transform: translateY(-8px) scale(0.97);
+}
+
+.bf-toast-icon {
+  width: 20px;
+  height: 20px;
+  flex-shrink: 0;
+  display: grid;
+  place-items: center;
+  font-size: 14px;
+  font-weight: 800;
+  border-radius: 50%;
+  margin-top: 1px;
+}
+
+.bf-toast-content {
+  flex: 1;
+  min-width: 0;
+  word-break: break-word;
+}
+
+.bf-toast-close {
+  border: 0;
+  background: transparent;
+  color: #94a3b8;
+  cursor: pointer;
+  padding: 0;
+  font-size: 16px;
+  line-height: 1;
+  margin-left: 4px;
+  flex-shrink: 0;
+}
+
+.bf-toast-close:hover {
+  color: #172033;
+}
+
+/* Biến thể màu sắc */
+.bf-toast-success {
+  border-left: 4px solid #16a34a;
+}
+.bf-toast-success .bf-toast-icon {
+  background: #dcfce7;
+  color: #16a34a;
+}
+
+.bf-toast-error {
+  border-left: 4px solid #be123c;
+}
+.bf-toast-error .bf-toast-icon {
+  background: #ffe4e6;
+  color: #be123c;
+}
+
+.bf-toast-warning {
+  border-left: 4px solid #ea580c;
+}
+.bf-toast-warning .bf-toast-icon {
+  background: #ffedd5;
+  color: #ea580c;
+}
+
+.bf-toast-info {
+  border-left: 4px solid #5046e5;
+}
+.bf-toast-info .bf-toast-icon {
+  background: #eef2ff;
+  color: #5046e5;
+}
+
+@media (max-width: 480px) {
+  .bf-toast-container {
+    top: 16px;
+    right: 16px;
+    left: 16px;
+    width: auto;
+  }
+}

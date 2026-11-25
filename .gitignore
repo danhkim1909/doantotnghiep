@@ -1,5 +1,42 @@
+# ==============================================================================
+# CẤU HÌNH MÔI TRƯỜNG & BẢO MẬT (ENV & CREDENTIALS)
+# ==============================================================================
 .env
 .env.*
+.env.local
+.env.development
+.env.production
 !.env.example
+
+# ==============================================================================
+# TỆP QUY TẮC, KẾ HOẠCH & TÀI LIỆU DÀNH CHO AI TRỢ LÝ (AI RULES & MASTERPLAN)
+# (Giúp AI đọc hiểu dự án trên máy cục bộ, nhưng không đưa lên Git khi nộp bài)
+# ==============================================================================
+UPGRADE_MASTERPLAN.md
+ROADMAP.md
+AGENTS.md
+.gemini/
+.antigravity/
+.cursor/
+.windsurf/
+*.plan
+
+# ==============================================================================
+# TỆP NHẬT KÝ & HỆ THỐNG (LOGS & OS)
+# ==============================================================================
 *.log
 Thumbs.db
+.DS_Store
+
+# ==============================================================================
+# THƯ VIỆN & KẾT QUẢ KIỂM THỬ (DEPENDENCIES & TEST ARTIFACTS)
+# ==============================================================================
+node_modules/
+test-results/
+playwright-report/
+
+# ==============================================================================
+# TỆP NỘP BÀI CỦA HỌC VIÊN (USER UPLOADS & SUBMISSIONS)
+# ==============================================================================
+/uploads/submissions/*
+!/uploads/submissions/.htaccess

@@ -1,0 +1,478 @@
+/* BrightFuture - Teacher Courses Management CSS */
+
+.tc-content {
+    max-width: 1480px;
+    margin: auto;
+    padding: 35px 36px 70px;
+}
+
+.breadcrumb {
+    font-size: 13px;
+    color: var(--color-muted, #64748b);
+    margin-bottom: 24px;
+}
+
+.breadcrumb a:hover {
+    color: var(--color-primary, #4f46e5);
+}
+
+.heading {
+    display: flex;
+    justify-content: space-between;
+    gap: 20px;
+    align-items: center;
+    margin-bottom: 25px;
+}
+
+.heading h1 {
+    font-size: 29px;
+    margin: 0 0 8px;
+    letter-spacing: -0.7px;
+}
+
+.heading p {
+    color: var(--color-muted, #64748b);
+    margin: 0;
+    font-size: 14px;
+}
+
+.btn-primary {
+    border: none;
+    background: var(--color-primary, #4f46e5);
+    color: white;
+    border-radius: 11px;
+    padding: 12px 17px;
+    font-size: 13px;
+    font-weight: 700;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    text-decoration: none;
+    cursor: pointer;
+    transition: background var(--transition-fast, 0.15s ease);
+}
+
+.btn-primary:hover {
+    background: #4338ca;
+}
+
+.stats {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 18px;
+    margin-bottom: 26px;
+}
+
+.stat,
+.panel,
+.course {
+    border: 1px solid var(--color-border, #e2e8f0);
+    background: white;
+    border-radius: 16px;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+}
+
+.course {
+    transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.course:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.08), 0 8px 10px -6px rgba(0, 0, 0, 0.04);
+}
+
+.stat {
+    padding: 23px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.stat span {
+    color: var(--color-muted, #64748b);
+    font-size: 13px;
+}
+
+.stat strong {
+    display: block;
+    font-size: 28px;
+    margin-top: 10px;
+}
+
+.stat b {
+    font-size: 22px;
+    color: var(--color-primary, #4f46e5);
+    background: #eef2ff;
+    padding: 12px;
+    border-radius: 12px;
+}
+
+.panel {
+    padding: 21px;
+    margin-bottom: 25px;
+}
+
+.filter {
+    display: flex;
+    gap: 12px;
+    flex-wrap: wrap;
+}
+
+.filter input {
+    flex: 1;
+    min-width: 180px;
+}
+
+.filter input,
+.filter select,
+.field input,
+.field textarea,
+.field select {
+    border: 1.5px solid #dde3ef;
+    background: #fff;
+    border-radius: 10px;
+    padding: 12px;
+    outline: none;
+    max-width: 100%;
+    font-family: inherit;
+    box-sizing: border-box;
+}
+
+.filter select {
+    min-width: 155px;
+}
+
+.filter input:focus,
+.filter select:focus,
+.field input:focus,
+.field textarea:focus,
+.field select:focus {
+    border-color: var(--color-primary, #4f46e5);
+    box-shadow: 0 0 0 3px #eef2ff;
+}
+
+.result {
+    margin-top: 14px;
+    font-size: 13px;
+    color: var(--color-muted, #64748b);
+}
+
+.result a {
+    color: var(--color-primary, #4f46e5);
+    font-weight: 700;
+    margin-left: 12px;
+    text-decoration: none;
+}
+
+.cards {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 19px;
+}
+
+.course {
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+}
+
+.thumb {
+    height: 148px;
+    background: linear-gradient(130deg, #e0e7ff, #ddd6fe);
+    display: grid;
+    place-items: center;
+    color: var(--color-primary, #4f46e5);
+    font-size: 36px;
+    font-weight: 800;
+    position: relative;
+}
+
+.thumb img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+.status {
+    position: absolute;
+    top: 12px;
+    right: 12px;
+    background: #fff7ed;
+    color: #9a3412;
+    border-radius: 30px;
+    padding: 7px 11px;
+    font-size: 11px;
+    font-weight: 700;
+}
+
+.status.published {
+    background: #dcfce7;
+    color: #166534;
+}
+
+.course-body {
+    padding: 19px;
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+}
+
+.tag {
+    display: inline-block;
+    background: #eef2ff;
+    color: var(--color-primary, #4f46e5);
+    font-weight: 700;
+    font-size: 11px;
+    padding: 6px 9px;
+    border-radius: 7px;
+    align-self: flex-start;
+}
+
+.course h3 {
+    font-size: 17px;
+    line-height: 1.5;
+    margin: 13px 0 8px;
+}
+
+.desc {
+    font-size: 13px;
+    line-height: 1.65;
+    color: var(--color-muted, #64748b);
+    min-height: 42px;
+    margin: 0 0 16px;
+    overflow-wrap: anywhere;
+}
+
+.numbers {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+    font-size: 12px;
+    color: var(--color-muted, #64748b);
+    margin-top: auto;
+    border-top: 1px solid var(--color-border, #e2e8f0);
+    padding-top: 14px;
+}
+
+.actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 17px;
+}
+
+.actions .button {
+    border: 1px solid var(--color-border, #e2e8f0);
+    background: white;
+    color: var(--color-primary, #4f46e5);
+    border-radius: 9px;
+    padding: 10px 11px;
+    font-size: 12px;
+    font-weight: 700;
+    cursor: pointer;
+    text-decoration: none;
+}
+
+.actions .button:hover {
+    background: #eef2ff;
+}
+
+.actions .danger {
+    color: #be123c;
+}
+
+.actions .danger:hover {
+    background: #fff1f2;
+}
+
+.actions form {
+    display: inline-flex;
+}
+
+.alert {
+    padding: 14px 17px;
+    border-radius: 11px;
+    margin-bottom: 20px;
+    font-size: 14px;
+}
+
+.alert-success {
+    background: #f0fdf4;
+    border: 1px solid #bbf7d0;
+    color: #166534;
+}
+
+.alert-error {
+    background: #fef2f2;
+    border: 1px solid #fecaca;
+    color: #991b1b;
+}
+
+.empty {
+    grid-column: 1 / -1;
+    text-align: center;
+    padding: 48px 18px;
+    border: 1px dashed #cbd5e1;
+    border-radius: 17px;
+    background: white;
+}
+
+.empty p {
+    color: var(--color-muted, #64748b);
+}
+
+.pagination {
+    display: flex;
+    justify-content: center;
+    gap: 7px;
+    flex-wrap: wrap;
+    margin-top: 30px;
+}
+
+.page-link {
+    display: grid;
+    place-items: center;
+    min-width: 40px;
+    height: 40px;
+    border-radius: 9px;
+    border: 1px solid var(--color-border, #e2e8f0);
+    background: white;
+    font-size: 13px;
+    text-decoration: none;
+    color: inherit;
+}
+
+.page-link.active {
+    background: var(--color-primary, #4f46e5);
+    color: #fff;
+    border-color: var(--color-primary, #4f46e5);
+}
+
+.editor {
+    margin-bottom: 25px;
+}
+
+.editor h2 {
+    font-size: 21px;
+    margin: 0 0 16px;
+}
+
+.fields {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 17px;
+}
+
+.field {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    font-size: 13px;
+    font-weight: 600;
+}
+
+.field.full {
+    grid-column: 1 / -1;
+}
+
+.field input,
+.field textarea,
+.field select {
+    width: 100%;
+    font-weight: 400;
+}
+
+.field textarea {
+    min-height: 120px;
+    resize: vertical;
+}
+
+.hint {
+    font-size: 12px;
+    color: var(--color-muted, #64748b);
+    font-weight: 400;
+}
+
+.form-actions {
+    margin-top: 20px;
+    display: flex;
+    gap: 12px;
+    align-items: center;
+}
+
+.cancel {
+    font-size: 13px;
+    color: var(--color-muted, #64748b);
+    font-weight: 700;
+    text-decoration: none;
+}
+
+.preview-thumb {
+    max-width: 190px;
+    max-height: 110px;
+    object-fit: cover;
+    border-radius: 9px;
+    margin-top: 6px;
+}
+
+.cards .course .thumb {
+    height: auto;
+    aspect-ratio: 4 / 3;
+    overflow: hidden;
+    background: #eae7ff;
+    font-size: clamp(24px, 3vw, 36px);
+}
+
+.cards .course .thumb img {
+    display: block;
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+    object-position: center;
+}
+
+.cards .course .course-body {
+    min-width: 0;
+}
+
+.cards .course h3 {
+    overflow-wrap: anywhere;
+}
+
+.cards .course .desc {
+    overflow-wrap: anywhere;
+}
+
+@media (max-width: 1200px) {
+    .cards {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+}
+
+@media (max-width: 650px) {
+    .stats,
+    .cards,
+    .fields {
+        grid-template-columns: 1fr;
+    }
+    .field.full {
+        grid-column: auto;
+    }
+    .tc-content {
+        padding: 20px 15px 40px;
+    }
+    .heading {
+        align-items: flex-start;
+        flex-direction: column;
+    }
+    .heading h1 {
+        font-size: 25px;
+    }
+    .filter {
+        flex-direction: column;
+    }
+    .filter input,
+    .filter select {
+        width: 100%;
+    }
+}

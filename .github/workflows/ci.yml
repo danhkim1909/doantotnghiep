@@ -1,0 +1,125 @@
+name: BrightFuture CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_DATABASE: brightfuture
+          MYSQL_ROOT_PASSWORD: root
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -proot"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=10
+
+    env:
+      APP_ENV: development
+      APP_DEBUG: true
+      BASE_URL: /
+      PLAYWRIGHT_BASE_URL: http://127.0.0.1:8098/
+      DB_HOST: 127.0.0.1
+      DB_PORT: 3306
+      DB_NAME: brightfuture
+      DB_USER: root
+      DB_PASS: root
+      DB_CHARSET: utf8mb4
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          extensions: mbstring, pdo_mysql
+          coverage: none
+
+      - name: PHP lint
+        run: find . -name '*.php' -not -path './vendor/*' -print0 | xargs -0 -n1 php -l
+
+      - name: Import database baseline
+        run: mysql -h127.0.0.1 -uroot -proot brightfuture < database/schema.sql
+
+      - name: Apply migrations
+        run: php scripts/migrate.php migrate
+
+      - name: Seed development accounts
+        run: php scripts/seed-dev.php
+
+      - name: Run PHP smoke tests
+        run: php scripts/test.php
+
+      - name: Test SMTP protocol locally
+        run: php scripts/test-smtp.php
+
+      - name: Test upgrade from supported legacy schema
+        run: |
+          mysql -h127.0.0.1 -uroot -proot -e "CREATE DATABASE brightfuture_legacy_test CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci"
+          mysql -h127.0.0.1 -uroot -proot brightfuture_legacy_test < database/schema.sql
+          mysql -h127.0.0.1 -uroot -proot brightfuture_legacy_test -e "
+            DROP TABLE bf_student_notifications, bf_teacher_notifications,
+              bf_lesson_discussion_replies, bf_password_resets, bf_audit_logs,
+              bf_totp_secrets, bf_email_verifications, bf_totp_backup_codes,
+              bf_login_attempts, bf_password_reset_limits, bf_ai_usage_limits,
+              bf_rate_limit_windows;
+            ALTER TABLE users
+              DROP INDEX idx_users_deleted_created,
+              DROP COLUMN deleted_at,
+              DROP COLUMN email_verified_at;
+            ALTER TABLE courses
+              DROP INDEX idx_courses_deleted_updated,
+              DROP COLUMN deleted_at;"
+          mysql -h127.0.0.1 -uroot -proot brightfuture_legacy_test -e "
+            ALTER TABLE bf_meeting_chat DROP INDEX idx_meeting_chat_created;
+            ALTER TABLE bf_meeting_signals DROP INDEX idx_meeting_signals_created;"
+          DB_NAME=brightfuture_legacy_test php scripts/migrate.php status
+          DB_NAME=brightfuture_legacy_test php scripts/migrate.php dry-run
+          if mysql -h127.0.0.1 -uroot -proot brightfuture_legacy_test -Nse "SHOW TABLES LIKE 'bf_database_migrations'" | grep -q .; then
+            echo "status and dry-run must not create the migration ledger."
+            exit 1
+          fi
+          DB_NAME=brightfuture_legacy_test php scripts/migrate.php migrate
+          DB_NAME=brightfuture_legacy_test php scripts/migrate.php status
+          mysql -h127.0.0.1 -uroot -proot brightfuture_legacy_test -e \
+            "ALTER TABLE bf_login_attempts DROP INDEX idx_login_attempt_ip_time"
+          if DB_NAME=brightfuture_legacy_test php scripts/migrate.php status; then
+            echo "Expected a partially applied migration to fail validation."
+            exit 1
+          fi
+          mysql -h127.0.0.1 -uroot -proot -e "DROP DATABASE brightfuture_legacy_test"
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: Start application server
+        run: php -S 127.0.0.1:8098 -t . &
+
+      - name: Wait for application
+        run: |
+          for i in {1..30}; do
+            curl -fsS http://127.0.0.1:8098/login.php >/dev/null && exit 0
+            sleep 1
+          done
+          exit 1
+
+      - name: Run Playwright
+        run: npm run test:e2e

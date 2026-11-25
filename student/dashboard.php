@@ -13,6 +13,7 @@
 // =====================================================
 
 require_once __DIR__ . '/../includes/permissions.php';
+require_once __DIR__ . '/../includes/portal_ui.php';
 
 // Chi hoc vien duoc truy cap.
 $user = require_role(ROLE_STUDENT);
@@ -37,6 +38,10 @@ $stats = [
 $myCourses = [];
 $recentLessons = [];
 $recommendedCourses = [];
+$currentStreak = 0;
+$weekTotalActivities = 0;
+$weekActivityData = [];
+$maxDayCount = 1;
 
 $dataError = false;
 
@@ -269,6 +274,95 @@ try {
 
     $recommendedCourses = $stmt->fetchAll();
 
+    // -------------------------------------------------
+    // 3.6. CHUỖI NGÀY HỌC TẬP (STREAK) & HOẠT ĐỘNG TUẦN
+    // -------------------------------------------------
+
+    $stmtActivity = $pdo->prepare(
+        "SELECT DISTINCT act_date FROM (
+            SELECT DATE(updated_at) AS act_date
+            FROM lesson_progress
+            WHERE student_id = :student_id AND status IN ('in_progress', 'completed')
+            UNION
+            SELECT DATE(submitted_at) AS act_date
+            FROM exercise_submissions
+            WHERE student_id = :student_id
+        ) AS acts
+        ORDER BY act_date DESC"
+    );
+
+    $stmtActivity->execute([
+        'student_id' => $studentId
+    ]);
+
+    $activityDates = $stmtActivity->fetchAll(PDO::FETCH_COLUMN) ?: [];
+    $activitySet = array_flip($activityDates);
+
+    $today = date('Y-m-d');
+    $yesterday = date('Y-m-d', strtotime('-1 day'));
+
+    $currentStreak = 0;
+    $checkDate = isset($activitySet[$today]) ? $today : (isset($activitySet[$yesterday]) ? $yesterday : null);
+
+    if ($checkDate !== null) {
+        while (isset($activitySet[$checkDate])) {
+            $currentStreak++;
+            $checkDate = date('Y-m-d', strtotime($checkDate . ' -1 day'));
+        }
+    }
+
+    $monday = date('Y-m-d', strtotime('monday this week'));
+    $stmtWeek = $pdo->prepare(
+        "SELECT act_date, COUNT(*) AS total FROM (
+            SELECT DATE(updated_at) AS act_date
+            FROM lesson_progress
+            WHERE student_id = :student_id AND updated_at >= :start_date AND status IN ('in_progress', 'completed')
+            UNION ALL
+            SELECT DATE(submitted_at) AS act_date
+            FROM exercise_submissions
+            WHERE student_id = :student_id AND submitted_at >= :start_date
+        ) AS week_acts
+        GROUP BY act_date"
+    );
+
+    $stmtWeek->execute([
+        'student_id' => $studentId,
+        'start_date' => $monday . ' 00:00:00'
+    ]);
+
+    $weeklyCounts = $stmtWeek->fetchAll(PDO::FETCH_KEY_PAIR) ?: [];
+
+    $daysOfWeek = [
+        ['label' => 'T2', 'full' => 'Thứ Hai'],
+        ['label' => 'T3', 'full' => 'Thứ Ba'],
+        ['label' => 'T4', 'full' => 'Thứ Tư'],
+        ['label' => 'T5', 'full' => 'Thứ Năm'],
+        ['label' => 'T6', 'full' => 'Thứ Sáu'],
+        ['label' => 'T7', 'full' => 'Thứ Bảy'],
+        ['label' => 'CN', 'full' => 'Chủ Nhật'],
+    ];
+
+    $weekActivityData = [];
+    $maxDayCount = 1;
+    $weekTotalActivities = 0;
+
+    for ($i = 0; $i < 7; $i++) {
+        $d = date('Y-m-d', strtotime($monday . " +$i days"));
+        $cnt = (int) ($weeklyCounts[$d] ?? 0);
+        $weekTotalActivities += $cnt;
+        if ($cnt > $maxDayCount) {
+            $maxDayCount = $cnt;
+        }
+        $weekActivityData[] = [
+            'date' => $d,
+            'label' => $daysOfWeek[$i]['label'],
+            'full' => $daysOfWeek[$i]['full'],
+            'count' => $cnt,
+            'is_today' => ($d === $today),
+            'is_future' => ($d > $today),
+        ];
+    }
+
 } catch (Throwable $exception) {
 
     error_log(
@@ -289,6 +383,35 @@ try {
     $myCourses = [];
     $recentLessons = [];
     $recommendedCourses = [];
+    $currentStreak = 0;
+    $weekTotalActivities = 0;
+    $weekActivityData = [];
+    $maxDayCount = 1;
+}
+
+if (empty($weekActivityData)) {
+    $daysOfWeek = [
+        ['label' => 'T2', 'full' => 'Thứ Hai'],
+        ['label' => 'T3', 'full' => 'Thứ Ba'],
+        ['label' => 'T4', 'full' => 'Thứ Tư'],
+        ['label' => 'T5', 'full' => 'Thứ Năm'],
+        ['label' => 'T6', 'full' => 'Thứ Sáu'],
+        ['label' => 'T7', 'full' => 'Thứ Bảy'],
+        ['label' => 'CN', 'full' => 'Chủ Nhật'],
+    ];
+    $today = date('Y-m-d');
+    $monday = date('Y-m-d', strtotime('monday this week'));
+    for ($i = 0; $i < 7; $i++) {
+        $d = date('Y-m-d', strtotime($monday . " +$i days"));
+        $weekActivityData[] = [
+            'date' => $d,
+            'label' => $daysOfWeek[$i]['label'],
+            'full' => $daysOfWeek[$i]['full'],
+            'count' => 0,
+            'is_today' => ($d === $today),
+            'is_future' => ($d > $today),
+        ];
+    }
 }
 
 // =====================================================
@@ -400,1084 +523,15 @@ $firstName = trim(
         ) - 1
     ] ?? $user['full_name']
 );
+$pageTitle = 'Tổng quan học tập';
+$pageDescription = 'Trang quản lý học tập dành cho học viên BrightFuture.';
+$activeMenu = 'dashboard';
+$extraCss = ['css/bf-student-dashboard.css'];
 
+require_once __DIR__ . '/../views/layouts/portal_head.php';
+echo bf_unified_sidebar($user, 'dashboard');
+require_once __DIR__ . '/../views/layouts/portal_topbar.php';
 ?>
-<!DOCTYPE html>
-<html lang="vi">
-<head>
-    <meta charset="UTF-8">
-
-    <meta
-        name="viewport"
-        content="width=device-width, initial-scale=1.0"
-    >
-
-    <meta
-        name="description"
-        content="Trang quản lý học tập dành cho học viên BrightFuture."
-    >
-
-    <title><?= e($pageTitle) ?></title>
-
-    <style>
-        :root {
-            --primary: #4f46e5;
-            --primary-dark: #4338ca;
-            --primary-light: #eef2ff;
-            --secondary: #7c3aed;
-            --background: #f6f8fc;
-            --surface: #ffffff;
-            --text: #172033;
-            --muted: #64748b;
-            --border: #e7ebf2;
-            --success: #16a34a;
-            --radius: 16px;
-            --sidebar-width: 255px;
-        }
-
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
-
-        body {
-            font-family: 'Segoe UI', Arial, sans-serif;
-            background: var(--background);
-            color: var(--text);
-            min-height: 100vh;
-        }
-
-        a {
-            text-decoration: none;
-            color: inherit;
-        }
-
-        button {
-            font: inherit;
-            cursor: pointer;
-        }
-
-        .layout {
-            min-height: 100vh;
-        }
-
-        /* ====================================
-           SIDEBAR
-        ==================================== */
-
-        .sidebar {
-            position: fixed;
-            top: 0;
-            left: 0;
-            bottom: 0;
-            width: var(--sidebar-width);
-            background: white;
-            border-right: 1px solid var(--border);
-            display: flex;
-            flex-direction: column;
-            z-index: 100;
-            transition: transform .25s;
-        }
-
-        .sidebar-logo {
-            height: 90px;
-            display: flex;
-            align-items: center;
-            gap: 11px;
-            padding: 0 25px;
-            font-weight: 800;
-            font-size: 21px;
-            color: var(--primary);
-            letter-spacing: -.5px;
-        }
-
-        .logo-icon {
-            width: 39px;
-            height: 39px;
-            display: grid;
-            place-items: center;
-            border-radius: 12px;
-            background: linear-gradient(
-                135deg,
-                var(--primary),
-                var(--secondary)
-            );
-            color: white;
-            font-size: 15px;
-            font-weight: 800;
-        }
-
-        .sidebar-nav {
-            padding: 12px 15px;
-            flex: 1;
-            overflow-y: auto;
-        }
-
-        .nav-label {
-            padding: 14px 13px 9px;
-            font-size: 11px;
-            color: #94a3b8;
-            font-weight: 700;
-            letter-spacing: 1px;
-            text-transform: uppercase;
-        }
-
-        .nav-link {
-            display: flex;
-            align-items: center;
-            gap: 13px;
-            padding: 13px 15px;
-            border-radius: 11px;
-            color: var(--muted);
-            font-size: 14px;
-            font-weight: 500;
-            margin-bottom: 5px;
-            transition: .2s;
-        }
-
-        .nav-link:hover {
-            background: #f4f5ff;
-            color: var(--primary);
-        }
-
-        .nav-link.active {
-            color: var(--primary);
-            background: var(--primary-light);
-            font-weight: 700;
-        }
-
-        .nav-icon {
-            width: 23px;
-            text-align: center;
-            font-size: 18px;
-            flex-shrink: 0;
-        }
-
-        .sidebar-bottom {
-            padding: 17px;
-            border-top: 1px solid var(--border);
-        }
-
-        .user-mini {
-            display: flex;
-            align-items: center;
-            gap: 10px;
-            margin-bottom: 15px;
-        }
-
-        .avatar {
-            width: 42px;
-            height: 42px;
-            border-radius: 13px;
-            display: grid;
-            place-items: center;
-            background: #ede9fe;
-            color: #6d28d9;
-            font-weight: 800;
-            font-size: 18px;
-            flex-shrink: 0;
-        }
-
-        .user-mini-info {
-            min-width: 0;
-            flex: 1;
-        }
-
-        .user-mini-info strong {
-            display: block;
-            font-size: 13px;
-            overflow: hidden;
-            text-overflow: ellipsis;
-            white-space: nowrap;
-        }
-
-        .user-mini-info span {
-            font-size: 12px;
-            color: var(--muted);
-        }
-
-        .logout-btn {
-            width: 100%;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            gap: 9px;
-            background: #fff1f2;
-            color: #be123c;
-            border: none;
-            padding: 12px;
-            border-radius: 10px;
-            font-weight: 600;
-            font-size: 13px;
-        }
-
-        .logout-btn:hover {
-            background: #ffe4e6;
-        }
-
-        /* ====================================
-           MAIN CONTENT
-        ==================================== */
-
-        .main {
-            margin-left: var(--sidebar-width);
-            min-width: 0;
-        }
-
-        .topbar {
-            height: 83px;
-            padding: 0 36px;
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            background: white;
-            border-bottom: 1px solid var(--border);
-        }
-
-        .topbar-title {
-            font-size: 15px;
-            font-weight: 600;
-            color: var(--muted);
-        }
-
-        .topbar-right {
-            display: flex;
-            align-items: center;
-            gap: 15px;
-        }
-
-        .topbar-user {
-            font-size: 13px;
-            font-weight: 600;
-        }
-
-        .topbar-avatar {
-            width: 37px;
-            height: 37px;
-            border-radius: 50%;
-            background: #e0e7ff;
-            color: var(--primary);
-            display: grid;
-            place-items: center;
-            font-weight: 800;
-        }
-
-        .mobile-menu {
-            display: none;
-            border: none;
-            background: transparent;
-            font-size: 24px;
-            color: var(--text);
-        }
-
-        .content {
-            width: 100%;
-            max-width: 1500px;
-            padding: 34px 36px 60px;
-            margin: auto;
-        }
-
-        /* ====================================
-           WELCOME BANNER
-        ==================================== */
-
-        .welcome-banner {
-            border-radius: 21px;
-            color: white;
-            background: linear-gradient(
-                115deg,
-                #4338ca,
-                #6366f1 60%,
-                #8b5cf6
-            );
-            padding: 35px 38px;
-            position: relative;
-            overflow: hidden;
-            margin-bottom: 29px;
-        }
-
-        .welcome-banner::before {
-            content: "";
-            position: absolute;
-            right: -65px;
-            top: -100px;
-            width: 330px;
-            height: 330px;
-            border-radius: 50%;
-            background: rgba(255,255,255,.08);
-        }
-
-        .welcome-content {
-            position: relative;
-            z-index: 1;
-        }
-
-        .welcome-badge {
-            display: inline-block;
-            background: rgba(255,255,255,.17);
-            border-radius: 30px;
-            padding: 7px 13px;
-            font-size: 12px;
-            font-weight: 600;
-            margin-bottom: 17px;
-        }
-
-        .welcome-banner h1 {
-            font-size: clamp(23px, 2.5vw, 32px);
-            letter-spacing: -.7px;
-            margin-bottom: 12px;
-        }
-
-        .welcome-banner p {
-            color: #e0e7ff;
-            line-height: 1.7;
-            max-width: 650px;
-            font-size: 14px;
-        }
-
-        .welcome-action {
-            display: inline-flex;
-            margin-top: 20px;
-            padding: 12px 18px;
-            border-radius: 10px;
-            background: white;
-            color: var(--primary);
-            font-size: 13px;
-            font-weight: 700;
-        }
-
-        /* ====================================
-           STATISTICS
-        ==================================== */
-
-        .stats-grid {
-            display: grid;
-            grid-template-columns: repeat(4, minmax(0, 1fr));
-            gap: 18px;
-            margin-bottom: 33px;
-        }
-
-        .stat-card {
-            background: white;
-            border: 1px solid var(--border);
-            border-radius: 17px;
-            padding: 22px;
-            display: flex;
-            justify-content: space-between;
-            align-items: flex-start;
-            gap: 12px;
-        }
-
-        .stat-info p {
-            font-size: 13px;
-            color: var(--muted);
-            line-height: 1.5;
-            margin-bottom: 13px;
-        }
-
-        .stat-info strong {
-            font-size: 29px;
-            font-weight: 800;
-            letter-spacing: -1px;
-        }
-
-        .stat-icon {
-            width: 45px;
-            height: 45px;
-            border-radius: 13px;
-            display: grid;
-            place-items: center;
-            font-size: 22px;
-            flex-shrink: 0;
-        }
-
-        .icon-purple {
-            background: #ede9fe;
-            color: #7c3aed;
-        }
-
-        .icon-blue {
-            background: #dbeafe;
-            color: #2563eb;
-        }
-
-        .icon-green {
-            background: #dcfce7;
-            color: #16a34a;
-        }
-
-        .icon-orange {
-            background: #ffedd5;
-            color: #ea580c;
-        }
-
-        /* ====================================
-           SECTIONS
-        ==================================== */
-
-        .section {
-            margin-bottom: 33px;
-        }
-
-        .section-header {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            gap: 15px;
-            margin-bottom: 19px;
-        }
-
-        .section-header h2 {
-            font-size: 21px;
-            font-weight: 800;
-            letter-spacing: -.5px;
-        }
-
-        .section-header p {
-            color: var(--muted);
-            font-size: 13px;
-            margin-top: 7px;
-        }
-
-        .view-all {
-            font-size: 13px;
-            font-weight: 700;
-            color: var(--primary);
-            white-space: nowrap;
-        }
-
-        /* ====================================
-           COURSE CARDS
-        ==================================== */
-
-        .course-grid {
-            display: grid;
-            grid-template-columns: repeat(
-                3,
-                minmax(0, 1fr)
-            );
-            gap: 19px;
-        }
-
-        .course-card {
-            background: white;
-            border: 1px solid var(--border);
-            border-radius: 17px;
-            overflow: hidden;
-            min-width: 0;
-            transition: transform .2s, box-shadow .2s;
-        }
-
-        .course-card:hover {
-            transform: translateY(-3px);
-            box-shadow: 0 12px 28px rgba(15,23,42,.07);
-        }
-
-        /* Thumbnail 4:3: display full designed cover including its bottom text. */
-        .course-thumbnail {
-            width: 100%;
-            height: auto;
-            aspect-ratio: 4 / 3;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            background: #e8e7ff;
-            color: var(--primary);
-            font-size: 44px;
-            font-weight: 800;
-            overflow: hidden;
-        }
-
-        .course-thumbnail img {
-            display: block;
-            width: 100%;
-            height: 100%;
-            object-fit: contain;
-            object-position: center;
-        }
-
-        .course-body {
-            padding: 19px;
-        }
-
-        .course-category {
-            display: inline-block;
-            background: #eef2ff;
-            color: var(--primary);
-            font-size: 11px;
-            font-weight: 700;
-            padding: 6px 10px;
-            border-radius: 7px;
-            margin-bottom: 12px;
-        }
-
-        .course-title {
-            font-size: 16px;
-            font-weight: 750;
-            line-height: 1.5;
-            margin-bottom: 9px;
-            min-height: 48px;
-            overflow-wrap: anywhere;
-        }
-
-        .course-teacher {
-            color: var(--muted);
-            font-size: 12px;
-            margin-bottom: 19px;
-        }
-
-        .progress-heading {
-            display: flex;
-            justify-content: space-between;
-            gap: 10px;
-            font-size: 12px;
-            margin-bottom: 9px;
-        }
-
-        .progress-heading span:first-child {
-            color: var(--muted);
-        }
-
-        .progress-heading strong {
-            color: var(--primary);
-        }
-
-        .progress-track {
-            background: #e9edf5;
-            width: 100%;
-            height: 8px;
-            border-radius: 10px;
-            overflow: hidden;
-        }
-
-        .progress-fill {
-            background: linear-gradient(
-                90deg,
-                var(--primary),
-                #8b5cf6
-            );
-            height: 100%;
-            border-radius: 10px;
-        }
-
-        .course-meta {
-            display: flex;
-            justify-content: space-between;
-            flex-wrap: wrap;
-            gap: 7px;
-            color: var(--muted);
-            font-size: 12px;
-            margin-top: 12px;
-        }
-
-        .course-action {
-            display: block;
-            text-align: center;
-            padding: 12px;
-            border-radius: 10px;
-            background: var(--primary-light);
-            color: var(--primary);
-            font-size: 13px;
-            font-weight: 700;
-            margin-top: 18px;
-            transition: .2s;
-        }
-
-        .course-action:hover {
-            background: var(--primary);
-            color: white;
-        }
-
-        /* ====================================
-           LOWER GRID
-        ==================================== */
-
-        .lower-grid {
-            display: grid;
-            grid-template-columns: 1.35fr 1fr;
-            gap: 20px;
-        }
-
-        .panel {
-            background: white;
-            border: 1px solid var(--border);
-            border-radius: 17px;
-            padding: 22px;
-            min-width: 0;
-        }
-
-        .panel h3 {
-            font-size: 17px;
-            font-weight: 800;
-            margin-bottom: 20px;
-        }
-
-        .lesson-item {
-            display: flex;
-            align-items: center;
-            gap: 13px;
-            padding: 15px 0;
-            border-bottom: 1px solid var(--border);
-        }
-
-        .lesson-item:last-child {
-            border-bottom: none;
-        }
-
-        .lesson-icon {
-            display: grid;
-            place-items: center;
-            width: 43px;
-            height: 43px;
-            border-radius: 11px;
-            background: #eef2ff;
-            color: var(--primary);
-            font-weight: 800;
-            font-size: 15px;
-            flex-shrink: 0;
-        }
-
-        .lesson-info {
-            min-width: 0;
-            flex: 1;
-        }
-
-        .lesson-info strong {
-            display: block;
-            font-size: 13px;
-            line-height: 1.5;
-            margin-bottom: 5px;
-            overflow-wrap: anywhere;
-        }
-
-        .lesson-info p {
-            font-size: 12px;
-            color: var(--muted);
-            line-height: 1.5;
-        }
-
-        .lesson-status {
-            font-size: 11px;
-            font-weight: 700;
-            color: var(--primary);
-            white-space: nowrap;
-        }
-
-        .lesson-status.completed {
-            color: var(--success);
-        }
-
-        .recommend-item {
-            display: flex;
-            gap: 13px;
-            align-items: center;
-            padding: 12px 0;
-            border-bottom: 1px solid var(--border);
-        }
-
-        .recommend-item:last-child {
-            border: none;
-        }
-
-        .recommend-icon {
-            width: 48px;
-            height: 48px;
-            border-radius: 12px;
-            display: grid;
-            place-items: center;
-            background: #e0e7ff;
-            color: var(--primary);
-            font-size: 15px;
-            font-weight: 800;
-            flex-shrink: 0;
-        }
-
-        .recommend-info {
-            min-width: 0;
-            flex: 1;
-        }
-
-        .recommend-info strong {
-            font-size: 13px;
-            line-height: 1.5;
-            display: block;
-            margin-bottom: 5px;
-        }
-
-        .recommend-info span {
-            font-size: 12px;
-            color: var(--muted);
-        }
-
-        .recommend-link {
-            color: var(--primary);
-            font-size: 21px;
-            font-weight: 800;
-        }
-
-        /* ====================================
-           EMPTY STATE
-        ==================================== */
-
-        .empty-state {
-            background: white;
-            border: 1px dashed #cbd5e1;
-            border-radius: 17px;
-            padding: 36px 22px;
-            text-align: center;
-            grid-column: 1 / -1;
-        }
-
-        .empty-icon {
-            font-size: 40px;
-            margin-bottom: 13px;
-        }
-
-        .empty-state h3 {
-            font-size: 16px;
-            margin-bottom: 9px;
-        }
-
-        .empty-state p {
-            color: var(--muted);
-            font-size: 13px;
-            line-height: 1.7;
-            margin-bottom: 18px;
-        }
-
-        .empty-action {
-            display: inline-block;
-            padding: 11px 17px;
-            color: white;
-            background: var(--primary);
-            border-radius: 10px;
-            font-size: 13px;
-            font-weight: 700;
-        }
-
-        .data-alert {
-            padding: 15px 18px;
-            background: #fff7ed;
-            border: 1px solid #fed7aa;
-            border-radius: 12px;
-            color: #9a3412;
-            font-size: 13px;
-            line-height: 1.6;
-            margin-bottom: 22px;
-        }
-
-        /* ====================================
-           MOBILE RESPONSIVE
-        ==================================== */
-
-        .sidebar-overlay {
-            display: none;
-        }
-
-        @media (max-width: 1200px) {
-            .stats-grid {
-                grid-template-columns: repeat(2, 1fr);
-            }
-
-            .course-grid {
-                grid-template-columns: repeat(2, 1fr);
-            }
-
-            .lower-grid {
-                grid-template-columns: 1fr;
-            }
-        }
-
-        @media (max-width: 900px) {
-            .sidebar {
-                transform: translateX(-100%);
-            }
-
-            .sidebar.open {
-                transform: translateX(0);
-            }
-
-            .sidebar-overlay.show {
-                display: block;
-                position: fixed;
-                inset: 0;
-                z-index: 90;
-                background: rgba(15,23,42,.45);
-            }
-
-            .main {
-                margin-left: 0;
-            }
-
-            .mobile-menu {
-                display: block;
-            }
-
-            .topbar {
-                height: 70px;
-                padding: 0 22px;
-            }
-
-            .content {
-                padding: 25px 22px;
-            }
-        }
-
-        @media (max-width: 600px) {
-            .stats-grid,
-            .course-grid {
-                grid-template-columns: 1fr;
-            }
-
-            .content {
-                padding: 18px 15px 40px;
-            }
-
-            .topbar {
-                padding: 0 15px;
-            }
-
-            .topbar-user {
-                display: none;
-            }
-
-            .welcome-banner {
-                padding: 28px 23px;
-            }
-
-            .welcome-banner h1 {
-                font-size: 24px;
-            }
-
-            .section-header h2 {
-                font-size: 19px;
-            }
-
-            .stat-card {
-                padding: 20px;
-            }
-        }
-    </style>
-<link rel="stylesheet" href="<?= e(app_url('css/bf-legacy-fixes.css')) ?>">
-
-<link rel="stylesheet" href="<?= e(app_url('css/bf-ux-refresh.css')) ?>">
-</head>
-
-<body>
-
-<div class="layout">
-
-    <!-- ==========================================
-         MOBILE OVERLAY
-    =========================================== -->
-
-    <div
-        id="sidebarOverlay"
-        class="sidebar-overlay"
-        aria-hidden="true"
-    ></div>
-
-    <!-- ==========================================
-         SIDEBAR
-    =========================================== -->
-
-    <aside class="sidebar" id="sidebar">
-
-        <a
-            href="<?= e(app_url()) ?>"
-            class="sidebar-logo"
-        >
-            <span class="logo-icon">&lt;/&gt;</span>
-            <span>BrightFuture</span>
-        </a>
-
-        <nav class="sidebar-nav">
-<a class="nav-link" href="<?= e(app_url('certificate.php')) ?>">✧ &nbsp; Chứng chỉ</a>
-
-            <div class="nav-label">
-                Học tập
-            </div>
-
-            <a
-                href="<?= e(app_url('student/dashboard.php')) ?>"
-                class="nav-link active"
-                aria-current="page"
-            >
-                <span class="nav-icon">&#9638;</span>
-                Tổng quan
-            </a>
-
-            <a
-                href="<?= e(app_url('student/my-courses.php')) ?>"
-                class="nav-link"
-            >
-                <span class="nav-icon">&#128218;</span>
-                Khóa học của tôi
-            </a>
-
-            <a
-                href="<?= e(app_url('courses.php')) ?>"
-                class="nav-link"
-            >
-                <span class="nav-icon">&#128269;</span>
-                Khám phá khóa học
-            </a>
-
-            <a
-                href="<?= e(app_url('student/exercises.php')) ?>"
-                class="nav-link"
-            >
-                <span class="nav-icon">&#128187;</span>
-                Bài tập
-            </a>
-
-            <a
-                href="<?= e(app_url('student/progress.php')) ?>"
-                class="nav-link"
-            >
-                <span class="nav-icon">&#128200;</span>
-                Tiến độ học tập
-            </a>
-
-            <div class="nav-label">
-                Cá nhân
-            </div>
-
-            <a
-                href="<?= e(app_url('profile.php')) ?>"
-                class="nav-link"
-            >
-                <span class="nav-icon">&#9786;</span>
-                Hồ sơ của tôi
-            </a>
-
-            <a
-                href="<?= e(app_url()) ?>"
-                class="nav-link"
-            >
-                <span class="nav-icon">&#8962;</span>
-                Trang chủ
-            </a>
-
-        </nav>
-
-        <!-- USER & LOGOUT -->
-
-        <div class="sidebar-bottom">
-
-            <div class="user-mini">
-
-                <div class="avatar">
-                    <?= e(
-                        function_exists('mb_substr')
-                        ? mb_substr(
-                            $user['full_name'],
-                            0,
-                            1,
-                            'UTF-8'
-                        )
-                        : substr(
-                            $user['full_name'],
-                            0,
-                            1
-                        )
-                    ) ?>
-                </div>
-
-                <div class="user-mini-info">
-
-                    <strong>
-                        <?= e($user['full_name']) ?>
-                    </strong>
-
-                    <span>Học viên</span>
-
-                </div>
-
-            </div>
-
-            <form
-                action="<?= e(app_url('logout.php')) ?>"
-                method="POST"
-            >
-                <?= csrf_field() ?>
-
-                <button
-                    type="submit"
-                    class="logout-btn"
-                >
-                    <span>&#10140;</span>
-                    Đăng xuất
-                </button>
-            </form>
-
-        </div>
-
-    </aside>
-
-    <!-- ==========================================
-         MAIN
-    =========================================== -->
-
-    <div class="main">
-
-        <!-- TOPBAR -->
-
-        <header class="topbar">
-
-            <div style="
-                display:flex;
-                align-items:center;
-                gap:15px;
-            ">
-
-                <button
-                    type="button"
-                    id="mobileMenu"
-                    class="mobile-menu"
-                    aria-label="Mở menu"
-                    aria-expanded="false"
-                    aria-controls="sidebar"
-                >
-                    &#9776;
-                </button>
-
-                <span class="topbar-title">
-                    Không gian học tập
-                </span>
-
-            </div>
-
-            <div class="topbar-right">
-
-                <span class="topbar-user">
-                    <?= e($user['full_name']) ?>
-                </span>
-
-                <div class="topbar-avatar">
-                    <?= e(
-                        function_exists('mb_substr')
-                        ? mb_substr(
-                            $user['full_name'],
-                            0,
-                            1,
-                            'UTF-8'
-                        )
-                        : substr(
-                            $user['full_name'],
-                            0,
-                            1
-                        )
-                    ) ?>
-                </div>
-
-            </div>
-
-        </header>
-
-        <!-- CONTENT -->
-
         <main class="content">
 
             <!-- THONG BAO LOI DU LIEU -->
@@ -1545,7 +599,7 @@ $firstName = trim(
                     </div>
 
                     <span class="stat-icon icon-purple">
-                        &#128218;
+                        <?= bf_icon('courses') ?>
                     </span>
 
                 </div>
@@ -1563,7 +617,7 @@ $firstName = trim(
                     </div>
 
                     <span class="stat-icon icon-blue">
-                        &#128187;
+                        <?= bf_icon('lesson') ?>
                     </span>
 
                 </div>
@@ -1581,7 +635,7 @@ $firstName = trim(
                     </div>
 
                     <span class="stat-icon icon-green">
-                        &#10003;
+                        <?= bf_icon('check') ?>
                     </span>
 
                 </div>
@@ -1599,8 +653,96 @@ $firstName = trim(
                     </div>
 
                     <span class="stat-icon icon-orange">
-                        &#9733;
+                        <?= bf_icon('certificate') ?>
                     </span>
+
+                </div>
+
+            </section>
+
+            <!-- ==================================
+                 CHUỖI HỌC TẬP & HOẠT ĐỘNG TRONG TUẦN
+            =================================== -->
+
+            <section class="streak-activity-section" aria-label="Chuỗi ngày học tập và hoạt động trong tuần">
+
+                <div class="streak-card">
+
+                    <div class="streak-badge-icon">
+                        <span class="streak-flame">
+                            <?= bf_icon('fire', 'bf-flame-icon') ?>
+                        </span>
+                    </div>
+
+                    <div class="streak-info">
+
+                        <div class="streak-header">
+                            <span class="streak-tag">Kỷ luật học tập</span>
+                            <?php if ($currentStreak > 0): ?>
+                                <span class="streak-status-pill active">
+                                    Đang duy trì 🔥
+                                </span>
+                            <?php else: ?>
+                                <span class="streak-status-pill">
+                                    Sẵn sàng bắt đầu
+                                </span>
+                            <?php endif; ?>
+                        </div>
+
+                        <h2 class="streak-title">
+                            <?= $currentStreak > 0
+                                ? e($currentStreak . ' Ngày liên tục')
+                                : 'Bắt đầu chuỗi học tập hôm nay' ?>
+                        </h2>
+
+                        <p class="streak-desc">
+                            <?= $currentStreak > 0
+                                ? 'Xuất sắc! Tiếp tục hoàn thành ít nhất 1 bài học mỗi ngày để duy trì chuỗi thành tích.'
+                                : 'Học tập đều đặn giúp bạn ghi nhớ sâu hơn 80%. Hoàn thành một bài học để kích hoạt ngọn lửa!' ?>
+                        </p>
+
+                    </div>
+
+                </div>
+
+                <div class="activity-chart-card">
+
+                    <div class="activity-chart-header">
+                        <div>
+                            <h3 class="activity-chart-title">Hoạt động trong tuần</h3>
+                            <span class="activity-chart-sub">Thứ 2 — Chủ nhật</span>
+                        </div>
+
+                        <div class="activity-total-badge">
+                            <strong><?= format_number($weekTotalActivities) ?></strong>
+                            <span>hoạt động</span>
+                        </div>
+                    </div>
+
+                    <div class="activity-bars-grid" role="group" aria-label="Biểu đồ hoạt động từng ngày trong tuần">
+                        <?php foreach ($weekActivityData as $day): ?>
+                            <?php
+                                $heightPercent = $day['count'] > 0
+                                    ? max(18, min(100, round(($day['count'] / $maxDayCount) * 100)))
+                                    : 8;
+                            ?>
+                            <div class="activity-day-col <?= $day['is_today'] ? 'is-today' : '' ?> <?= $day['is_future'] ? 'is-future' : '' ?>"
+                                 title="<?= e($day['full']) ?> (<?= e($day['date']) ?>): <?= $day['count'] ?> hoạt động">
+                                <div class="activity-bar-track">
+                                    <div class="activity-bar-fill <?= $day['count'] > 0 ? 'has-activity' : '' ?>"
+                                         style="height: <?= $heightPercent ?>%;">
+                                        <?php if ($day['count'] > 0): ?>
+                                            <span class="activity-bar-count"><?= $day['count'] ?></span>
+                                        <?php endif; ?>
+                                    </div>
+                                </div>
+                                <span class="activity-day-label"><?= e($day['label']) ?></span>
+                                <?php if ($day['is_today']): ?>
+                                    <span class="activity-today-indicator" title="Hôm nay">•</span>
+                                <?php endif; ?>
+                            </div>
+                        <?php endforeach; ?>
+                    </div>
 
                 </div>
 
@@ -1641,7 +783,7 @@ $firstName = trim(
                         <div class="empty-state">
 
                             <div class="empty-icon">
-                                &#128218;
+                                <?= bf_icon('courses') ?>
                             </div>
 
                             <h3>
@@ -1840,7 +982,7 @@ $firstName = trim(
                         <div class="empty-state">
 
                             <div class="empty-icon">
-                                &#128214;
+                                <?= bf_icon('courses') ?>
                             </div>
 
                             <h3>Chưa có lịch sử học tập</h3>
@@ -1861,8 +1003,8 @@ $firstName = trim(
 
                                 <div class="lesson-icon">
                                     <?= $lesson['lesson_type'] === 'video'
-                                        ? '&#9654;'
-                                        : '&lt;/&gt;' ?>
+                                        ? bf_icon('video')
+                                        : bf_icon('code') ?>
                                 </div>
 
                                 <div class="lesson-info">
@@ -1929,7 +1071,7 @@ $firstName = trim(
                         <div class="empty-state">
 
                             <div class="empty-icon">
-                                &#128161;
+                                <?= bf_icon('search') ?>
                             </div>
 
                             <h3>Chưa có khóa học gợi ý</h3>
@@ -2014,76 +1156,4 @@ $firstName = trim(
             </div>
 
         </main>
-
-    </div>
-
-</div>
-
-<!-- ==========================================
-     JAVASCRIPT - MOBILE SIDEBAR
-=========================================== -->
-
-<script>
-document.addEventListener('DOMContentLoaded', function () {
-
-    const sidebar =
-        document.getElementById('sidebar');
-
-    const menuButton =
-        document.getElementById('mobileMenu');
-
-    const overlay =
-        document.getElementById('sidebarOverlay');
-
-    function setMenuOpen(isOpen) {
-
-        sidebar.classList.toggle('open', isOpen);
-
-        overlay.classList.toggle('show', isOpen);
-
-        menuButton.setAttribute(
-            'aria-expanded',
-            String(isOpen)
-        );
-
-        menuButton.setAttribute(
-            'aria-label',
-            isOpen ? 'Đóng menu' : 'Mở menu'
-        );
-    }
-
-    menuButton.addEventListener('click', function () {
-
-        const isOpen =
-            sidebar.classList.contains('open');
-
-        setMenuOpen(!isOpen);
-    });
-
-    overlay.addEventListener('click', function () {
-        setMenuOpen(false);
-    });
-
-    document.addEventListener('keydown', function (event) {
-
-        if (event.key === 'Escape') {
-            setMenuOpen(false);
-        }
-    });
-
-    window.addEventListener('resize', function () {
-
-        if (window.innerWidth > 900) {
-            setMenuOpen(false);
-        }
-    });
-
-});
-</script>
-
-<script>window.BF_LEGACY={role:'student',base:<?= json_encode(rtrim(BASE_URL, '/')) ?>};</script>
-<script src="<?= e(app_url('js/bf-legacy-fixes.js')) ?>" defer></script>
-
-<script src="<?= e(app_url('js/bf-ux-refresh.js')) ?>" defer></script>
-</body>
-</html>
+<?php require_once __DIR__ . '/../views/layouts/portal_foot.php'; ?>

@@ -1,6 +1,7 @@
 <?php
 /** BrightFuture AI learning assistant - server-only helpers, PHP 8.0+. */
 require_once __DIR__ . '/permissions.php';
+require_once __DIR__ . '/ai_quota.php';
 
 /** Chat history belongs to the authenticated account and is stored in PHP session only. */
 function &bf_ai_state(int $userId, int $lessonId): array
@@ -10,7 +11,7 @@ function &bf_ai_state(int $userId, int $lessonId): array
         || (int)($_SESSION['bf_ai_chat']['lesson_id'] ?? 0) !== $lessonId) {
         $_SESSION['bf_ai_chat'] = [
             'user_id' => $userId, 'lesson_id' => $lessonId,
-            'messages' => [], 'last_sent' => 0, 'hour_start' => time(), 'hour_count' => 0,
+            'messages' => [],
         ];
     }
     return $_SESSION['bf_ai_chat'];

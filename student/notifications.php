@@ -1,6 +1,7 @@
 <?php
 /** Student notifications: replies from teachers to the student's lesson questions. */
 require_once __DIR__ . '/../includes/student_notifications.php';
+require_once __DIR__ . '/../includes/icons.php';
 require_once __DIR__ . '/../includes/portal_ui.php';
 $user = require_role(ROLE_STUDENT);
 $studentId = (int)$user['id'];
@@ -35,7 +36,7 @@ if (is_post()) {
         $error = 'Thao tác không hợp lệ.';
     } catch (Throwable $ex) {
         error_log('[BrightFuture student notification action] ' . $ex->getMessage());
-        $error = 'Không thực hiện được thao tác. Hãy kiểm tra SQL thông báo học viên.';
+        $error = 'Không thực hiện được thao tác. Hãy kiểm tra trạng thái migration thông báo.';
     }
 }
 
@@ -58,26 +59,33 @@ try {
 } catch (Throwable $ex) {
     error_log('[BrightFuture student notification list] ' . $ex->getMessage());
     $missingTable = true;
-    $error = 'Chưa cài đặt thông báo phản hồi. Hãy chạy file database/migrations/20261107_student_discussion_replies.sql trong đúng database.';
+    $error = 'Chưa cài đặt thông báo phản hồi. Hãy chạy php scripts/migrate.php migrate trên đúng database.';
 }
 $flash = get_flash();
-bf_portal_begin($user, 'notifications', 'Thông báo phản hồi');
+$pageTitle = 'Thông báo phản hồi';
+$activeTab = 'notifications';
+$extraCss = ['css/bf-notifications.css'];
+$portalRoleTitle = 'Không gian học tập';
+require_once __DIR__ . '/../views/layouts/portal_head.php';
+echo bf_unified_sidebar($user, $activeTab);
+require_once __DIR__ . '/../views/layouts/portal_topbar.php';
 ?>
-<style>
-.bf-notice{border:1px solid #e2e8f0;border-radius:13px;padding:19px;background:white;display:flex;gap:18px;align-items:center;justify-content:space-between;margin:13px 0}
-.bf-notice.unread{border-color:#a5b4fc;background:#f7f8ff}.bf-notice h2{font-size:17px;margin:7px 0}.bf-notice p{margin:6px 0;overflow-wrap:anywhere}
-.bf-notice-meta{display:flex;gap:9px;align-items:center;flex-wrap:wrap;color:#64748b;font-size:12px}
-.bf-notice-preview{font-size:13px;color:#475569;white-space:pre-wrap}.bf-notice-btn{white-space:nowrap}
-@media(max-width:700px){.bf-notice{display:block}.bf-notice-btn{margin-top:12px}}
-</style>
-<header class="bf-header"><div><h1>🔔 Phản hồi từ giảng viên</h1><p>Các câu hỏi bạn đã gửi và lời giải đáp trực tiếp từ giảng viên.</p></div><span class="bf-chip"><?=$unread?> chưa đọc</span></header>
-<?php if ($error): ?><div class="bf-note bf-error" role="alert"><?=e($error)?></div><?php endif; ?>
-<?php if ($flash): ?><div class="bf-note" role="status"><?=e((string)($flash['message']??''))?></div><?php endif; ?>
-<section class="bf-panel">
-  <div class="bf-actions" style="justify-content:space-between;flex-wrap:wrap"><h2>Thông báo mới</h2>
-    <form method="post"><?=csrf_field()?><input type="hidden" name="action" value="read_all"><button type="submit" class="bf-btn" <?=$unread===0||$missingTable?'disabled':''?>>Đánh dấu đã đọc tất cả</button></form>
+<main class="content container">
+<header class="bf-header" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px; flex-wrap: wrap; gap: 12px;">
+    <div>
+        <h1 style="font-size: 24px; font-weight: 700; color: #1e293b; margin: 0 0 6px;">Phản hồi từ giảng viên</h1>
+        <p style="color: #64748b; font-size: 14px; margin: 0;">Các câu hỏi bạn đã gửi và lời giải đáp trực tiếp từ giảng viên.</p>
+    </div>
+    <span class="bf-notice-pill <?= $unread > 0 ? 'danger' : '' ?>"><?= $unread ?> chưa đọc</span>
+</header>
+<?php if ($error): ?><div class="bf-note bf-error" role="alert" style="margin-bottom: 20px;"><?=e($error)?></div><?php endif; ?>
+<?php if ($flash): ?><div class="bf-note" role="status" style="margin-bottom: 20px;"><?=e((string)($flash['message']??''))?></div><?php endif; ?>
+<section class="bf-panel" style="background: #ffffff; border: 1px solid #e2e8f0; border-radius: 16px; padding: 24px;">
+  <div class="bf-actions" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px; margin-bottom: 20px;">
+    <h2 style="font-size: 18px; font-weight: 700; color: #1e293b; margin: 0;">Danh sách thông báo</h2>
+    <form method="post" style="margin: 0;"><?=csrf_field()?><input type="hidden" name="action" value="read_all"><button type="submit" class="bf-btn" style="height: 38px; padding: 0 16px; border-radius: 10px; background: #f1f5f9; color: #334155; font-size: 13px; font-weight: 600; border: 1px solid #cbd5e1; cursor: pointer;" <?=$unread===0||$missingTable?'disabled':''?>>Đánh dấu đã đọc tất cả</button></form>
   </div>
-  <?php if (!$rows && !$missingTable): ?><p class="bf-subtle">Chưa có phản hồi nào. Khi giảng viên trả lời câu hỏi của bạn, thông báo sẽ xuất hiện ở đây.</p><?php endif; ?>
+  <?php if (!$rows && !$missingTable): ?><p class="bf-subtle" style="color: #64748b; font-size: 14px; text-align: center; padding: 40px 0;">Chưa có phản hồi nào. Khi giảng viên trả lời câu hỏi của bạn, thông báo sẽ xuất hiện ở đây.</p><?php endif; ?>
   <?php foreach($rows as $n): ?>
     <article class="bf-notice <?=(int)$n['is_read']===0?'unread':''?>">
       <div><div class="bf-notice-meta"><span class="bf-chip"><?=(int)$n['is_read']===0?'● Chưa đọc':'Đã đọc'?></span><time><?=e($n['created_at'])?></time></div>
@@ -86,8 +94,9 @@ bf_portal_begin($user, 'notifications', 'Thông báo phản hồi');
         <p class="bf-notice-preview"><strong>Câu hỏi của bạn:</strong> <?=e(truncate_text((string)$n['question_body'],180))?></p>
         <p class="bf-notice-preview"><strong>Phản hồi:</strong> <?=e(truncate_text((string)$n['reply_body'],260))?></p>
       </div>
-      <form method="post" class="bf-notice-btn"><?=csrf_field()?><input type="hidden" name="action" value="open"><input type="hidden" name="notification_id" value="<?=(int)$n['id']?>"><button class="bf-btn" type="submit">Xem câu trả lời →</button></form>
+      <form method="post" class="bf-notice-btn"><?=csrf_field()?><input type="hidden" name="action" value="open"><input type="hidden" name="notification_id" value="<?=(int)$n['id']?>"><button class="bf-btn" type="submit"><?=bf_icon('arrow')?> Xem câu trả lời</button></form>
     </article>
   <?php endforeach; ?>
 </section>
-<?php bf_portal_end(); ?>
+</main>
+<?php require_once __DIR__ . '/../views/layouts/portal_foot.php'; ?>

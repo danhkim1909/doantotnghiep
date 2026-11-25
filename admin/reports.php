@@ -2,6 +2,8 @@
 /** BrightFuture - Bao cao quan tri. PHP 8+, MySQL 8+. */
 declare(strict_types=1);
 require_once __DIR__ . '/../includes/permissions.php';
+require_once __DIR__ . '/../includes/portal_ui.php';
+require_once __DIR__ . '/../includes/icons.php';
 $admin = require_role(ROLE_ADMIN);
 header('Cache-Control: no-store, no-cache, must-revalidate, private');
 header('Pragma: no-cache');
@@ -170,75 +172,40 @@ function report_exercise_type(string $type): string {
     };
 }
 $chartJson = json_encode($daily, JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_THROW_ON_ERROR);
-?>
-<!DOCTYPE html>
-<html lang="vi">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Báo cáo & thống kê | <?= e(APP_NAME) ?></title>
-<style>
-:root{--primary:#4f46e5;--purple:#7c3aed;--bg:#f6f8fc;--fg:#172033;--muted:#64748b;--line:#e7ebf2;--side:255px}
-*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--fg);font-family:'Segoe UI',Arial,sans-serif;font-size:14px}a{text-decoration:none;color:inherit}button,input{font:inherit}button{cursor:pointer}
-.sidebar{position:fixed;inset:0 auto 0 0;width:var(--side);display:flex;flex-direction:column;background:#fff;border-right:1px solid var(--line);z-index:40;transition:transform .25s}
-.brand{height:85px;display:flex;align-items:center;gap:12px;padding:0 23px;color:var(--primary);font-weight:800;font-size:21px}.brand-mark{background:linear-gradient(130deg,#4f46e5,#7c3aed);border-radius:12px;padding:12px;color:white;font-size:14px}
-.nav{padding:10px 14px;flex:1;overflow:auto}.nav-label{font-size:11px;text-transform:uppercase;color:#94a3b8;letter-spacing:1px;font-weight:700;padding:16px 13px 10px}.nav-link{display:flex;gap:12px;align-items:center;padding:13px 14px;border-radius:11px;margin-bottom:5px;color:var(--muted)}.nav-link:hover,.nav-link.active{background:#eef2ff;color:var(--primary)}.nav-link.active{font-weight:700}
-.user-foot{padding:16px;border-top:1px solid var(--line)}.user-name{font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.user-role{color:var(--muted);font-size:12px;margin:5px 0 14px}.logout{border:0;border-radius:10px;background:#fff1f2;color:#be123c;width:100%;padding:12px;font-weight:700}
-.main{margin-left:var(--side)}.topbar{background:#fff;border-bottom:1px solid var(--line);height:78px;padding:0 34px;display:flex;align-items:center;justify-content:space-between}.top-title{font-weight:600;color:var(--muted)}.identity{display:flex;align-items:center;gap:12px;font-weight:600}.bubble{display:grid;place-items:center;width:36px;height:36px;border-radius:50%;background:#e0e7ff;color:var(--primary)}.toggle{display:none;border:0;background:transparent;font-size:23px}.overlay{display:none}
-.content{max-width:1520px;margin:auto;padding:30px 34px 70px}.crumb{color:var(--muted);font-size:13px;margin-bottom:17px}.crumb a:hover{color:var(--primary)}h1{font-size:29px;margin:0 0 8px;letter-spacing:-.6px}.intro{color:var(--muted);margin:0 0 25px;line-height:1.6}.panel{background:#fff;border:1px solid var(--line);border-radius:17px;padding:23px;min-width:0}.panel h2{margin:0 0 8px;font-size:18px}.note{font-size:12px;color:var(--muted);line-height:1.6}.filter{display:flex;align-items:flex-end;gap:13px;flex-wrap:wrap;margin-bottom:23px}.filter label{display:flex;flex-direction:column;gap:7px;font-weight:600;font-size:12px}.filter input{border:1px solid #dbe1eb;background:#fff;border-radius:10px;height:43px;padding:0 12px;min-width:160px}.btn{border:0;border-radius:10px;background:var(--primary);color:#fff;font-weight:700;padding:12px 19px;min-height:43px}.btn:hover{background:#4338ca}.reset{font-size:13px;color:var(--primary);font-weight:600;padding:11px}.alert{padding:15px 18px;border:1px solid #fed7aa;background:#fff7ed;color:#9a3412;border-radius:11px;margin-bottom:20px;line-height:1.6}
-.metrics{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:16px;margin-bottom:22px}.metric{background:#fff;border:1px solid var(--line);border-radius:16px;padding:20px;min-width:0}.metric .icon{display:inline-grid;place-items:center;background:#eef2ff;border-radius:11px;width:37px;height:37px;color:var(--primary);font-size:19px;margin-bottom:15px}.metric .label{color:var(--muted);font-size:12px;line-height:1.5}.metric strong{display:block;font-size:27px;margin-top:7px;letter-spacing:-.7px}.metric small{display:block;color:var(--muted);margin-top:8px;font-size:11px}
-.twocol{display:grid;grid-template-columns:1.7fr 1fr;gap:19px;margin:0 0 22px}.chart-key{display:flex;gap:18px;flex-wrap:wrap;font-size:12px;color:var(--muted);margin:12px 0}.dot{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:5px;background:#4f46e5}.dot.other{background:#10b981}.chart-wrap{overflow-x:auto}.chart{width:100%;min-width:480px;height:290px;display:block}.empty{padding:27px 10px;text-align:center;color:var(--muted);line-height:1.6}.breakdown{margin:17px 0}.breakdown-title{display:flex;justify-content:space-between;gap:10px;font-size:13px;margin-bottom:9px}.track{width:100%;height:8px;background:#edf0f6;border-radius:20px;overflow:hidden}.fill{height:100%;background:linear-gradient(90deg,#4f46e5,#8b5cf6);border-radius:20px}
-.table-scroll{overflow-x:auto;margin-top:16px}table{width:100%;border-collapse:collapse;text-align:left;min-width:620px}th{background:#f8faff;color:var(--muted);font-size:12px;font-weight:700}th,td{padding:14px 13px;border-bottom:1px solid var(--line)}td{font-size:13px}td strong{display:block;margin-bottom:5px}.muted{color:var(--muted)}.number{text-align:right;white-space:nowrap}.small-cta{font-size:12px;color:var(--primary);font-weight:700}.stack{display:grid;gap:19px}.footnote{color:var(--muted);line-height:1.7;font-size:12px;margin-top:16px}
-@media(max-width:1200px){.metrics{grid-template-columns:repeat(2,minmax(0,1fr))}.twocol{grid-template-columns:1fr}}
-@media(max-width:900px){.sidebar{transform:translateX(-100%)}.sidebar.open{transform:translateX(0)}.main{margin-left:0}.toggle{display:block}.overlay.open{display:block;position:fixed;inset:0;z-index:30;background:#0f172a66}.topbar{height:70px;padding:0 22px}.content{padding:25px 22px}}
-@media(max-width:580px){.content{padding:20px 15px 45px}.metrics{grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}.metric{padding:14px}.metric strong{font-size:23px}.topbar{padding:0 15px}.identity>span:first-child{display:none}h1{font-size:24px}.filter input{width:100%}.filter label{flex:1;min-width:130px}.panel{padding:16px}}
-</style>
 
-<link rel="stylesheet" href="<?= e(app_url('css/bf-ux-refresh.css')) ?>">
-</head>
-<body>
-<div class="overlay" id="overlay"></div>
-<aside class="sidebar" id="sidebar" aria-label="Điều hướng quản trị">
- <a class="brand" href="<?= e(app_url()) ?>"><span class="brand-mark">&lt;/&gt;</span>BrightFuture</a>
- <nav class="nav">
-  <div class="nav-label">Quản trị</div>
-  <a class="nav-link" href="<?= e(app_url('admin/dashboard.php')) ?>">▦ Tổng quan</a>
-  <a class="nav-link" href="<?= e(app_url('admin/users.php')) ?>">♙ Người dùng</a>
-  <a class="nav-link" href="<?= e(app_url('admin/courses.php')) ?>">▤ Khóa học</a>
-  <a class="nav-link active" aria-current="page" href="<?= e(app_url('admin/reports.php')) ?>">▥ Báo cáo & thống kê</a>
-  <div class="nav-label">Hệ thống</div>
-  <a class="nav-link" href="<?= e(app_url()) ?>">⌂ Trang chủ</a>
- </nav>
- <div class="user-foot"><div class="user-name"><?= e($admin['full_name']) ?></div><div class="user-role">Quản trị viên</div>
-  <form method="post" action="<?= e(app_url('logout.php')) ?>"><?= csrf_field() ?><button class="logout" type="submit">⇥ Đăng xuất</button></form>
- </div>
-</aside>
-<div class="main">
- <header class="topbar"><div style="display:flex;align-items:center;gap:14px"><button id="menu" class="toggle" type="button" aria-label="Mở menu" aria-expanded="false" aria-controls="sidebar">☰</button><span class="top-title">Không gian quản trị</span></div><div class="identity"><span><?= e($admin['full_name']) ?></span><div class="bubble">A</div></div></header>
- <main class="content">
+$pageTitle = 'Báo cáo & thống kê - ' . APP_NAME;
+$portalRole = ROLE_ADMIN;
+$topbarTitle = 'Không gian quản trị';
+$extraCss = ['css/bf-admin-reports.css'];
+require_once __DIR__ . '/../views/layouts/portal_head.php';
+?>
+<?= bf_unified_sidebar($admin, 'reports') ?>
+<?php require_once __DIR__ . '/../views/layouts/portal_topbar.php'; ?>
+
+<main class="content container">
   <div class="crumb"><a href="<?= e(app_url('admin/dashboard.php')) ?>">Tổng quan</a> / <strong>Báo cáo & thống kê</strong></div>
   <h1>Báo cáo & thống kê</h1>
   <p class="intro">Theo dõi tăng trưởng người dùng, hoạt động khóa học, đăng ký học và đánh giá bài tập từ dữ liệu MySQL.</p>
   <form class="panel filter" method="get" action="<?= e(app_url('admin/reports.php')) ?>">
    <label>Từ ngày<input type="date" name="from" required value="<?= e($from) ?>" max="<?= e($today->format('Y-m-d')) ?>"></label>
    <label>Đến ngày<input type="date" name="to" required value="<?= e($to) ?>" max="<?= e($today->format('Y-m-d')) ?>"></label>
-   <button class="btn" type="submit">Áp dụng bộ lọc</button><a class="reset" href="<?= e(app_url('admin/reports.php')) ?>">Đặt lại</a>
+   <button class="btn" type="submit">Áp dụng bộ lọc</button><a class="reset" href="<?= e(app_url('admin/reports.php')) ?>">Đặt lại</a><a class="reset" href="<?= e(app_url('admin/export.php?type=submissions')) ?>">Tải CSV bài nộp</a>
    <div class="note" style="width:100%">Dữ liệu từ <?= e(format_date($from)) ?> đến <?= e(format_date($to)) ?> (<?= $days ?> ngày). Các chỉ số hoạt động được tính theo thời điểm phát sinh trong khoảng đã chọn.</div>
   </form>
   <?php foreach ($errors as $error): ?><div class="alert" role="alert"><?= e($error) ?></div><?php endforeach; ?>
   <?php if ($dataError): ?><div class="alert" role="alert">Không thể tải báo cáo. Vui lòng kiểm tra kết nối MySQL và dữ liệu các bảng nghiệp vụ. Không hiển thị số liệu chưa xác minh.</div><?php else: ?>
   <section class="metrics" aria-label="Chỉ số trong khoảng thời gian">
    <?php foreach ([
-      ['♙','Học viên mới','students','Tài khoản student được tạo'],
-      ['♧','Giáo viên mới','teachers','Tài khoản teacher được tạo'],
-      ['▤','Khóa học mới','courses','Khóa học được tạo'],
-      ['▦','Bài giảng mới','lessons','Bài học được tạo'],
-      ['▣','Bài tập mới','exercises','Bài tập được tạo'],
-      ['↗','Lượt đăng ký học','enrollments','Bao gồm cả lượt đã hủy'],
-      ['✎','Bài nộp mới','submissions','Tính theo submitted_at'],
-      ['✓','Bài được chấm','graded','Đã chấm, tính theo graded_at'],
-   ] as [$icon,$label,$key,$hint]): ?>
-    <article class="metric"><span class="icon"><?= e($icon) ?></span><div class="label"><?= e($label) ?></div><strong><?= report_number($overview[$key]) ?></strong><small><?= e($hint) ?></small></article>
+      ['users','Học viên mới','students','Tài khoản student được tạo'],
+      ['teaching','Giáo viên mới','teachers','Tài khoản teacher được tạo'],
+      ['courses','Khóa học mới','courses','Khóa học được tạo'],
+      ['lesson','Bài giảng mới','lessons','Bài học được tạo'],
+      ['exercises','Bài tập mới','exercises','Bài tập được tạo'],
+      ['progress','Lượt đăng ký học','enrollments','Bao gồm cả lượt đã hủy'],
+      ['code','Bài nộp mới','submissions','Tính theo submitted_at'],
+      ['check','Bài được chấm','graded','Đã chấm, tính theo graded_at'],
+   ] as [$iconName,$label,$key,$hint]): ?>
+    <article class="metric"><span class="icon"><?= bf_icon($iconName) ?></span><div class="label"><?= e($label) ?></div><strong><?= report_number($overview[$key]) ?></strong><small><?= e($hint) ?></small></article>
    <?php endforeach; ?>
   </section>
   <div class="twocol">
@@ -283,13 +250,10 @@ $chartJson = json_encode($daily, JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HE
   <p class="footnote">Lưu ý: Bảng <code>users</code> hiện không có lịch sử thay đổi vai trò; “học viên mới/giáo viên mới” phân loại theo vai trò hiện tại. Tiến độ được tính ở thời điểm mở báo cáo, không phải số liệu lịch sử. Điểm trung bình là điểm thô giữa các bài tập có thể khác thang điểm. Báo cáo không bao gồm các bản ghi đã bị xóa khỏi cơ sở dữ liệu.</p>
   <?php endif; ?>
  </main>
-</div>
 <script>
 (() => {
- const sidebar=document.getElementById('sidebar'),overlay=document.getElementById('overlay'),button=document.getElementById('menu');
- function setOpen(open){sidebar.classList.toggle('open',open);overlay.classList.toggle('open',open);button.setAttribute('aria-expanded',String(open));button.setAttribute('aria-label',open?'Đóng menu':'Mở menu');}
- button.addEventListener('click',()=>setOpen(!sidebar.classList.contains('open')));overlay.addEventListener('click',()=>setOpen(false));document.addEventListener('keydown',e=>{if(e.key==='Escape')setOpen(false)});
- window.addEventListener('resize',()=>{if(window.innerWidth>900)setOpen(false)});
+
+ 
  const series=<?= $chartJson ?>,svg=document.getElementById('trendChart');
  if(!svg)return;
  const ns='http://www.w3.org/2000/svg';
@@ -305,6 +269,6 @@ $chartJson = json_encode($daily, JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HE
 })();
 </script>
 
-<script src="<?= e(app_url('js/bf-ux-refresh.js')) ?>" defer></script>
+<?php require_once __DIR__ . '/../views/layouts/portal_foot.php'; ?>
 </body>
 </html>

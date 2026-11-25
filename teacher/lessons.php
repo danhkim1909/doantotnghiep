@@ -2,6 +2,7 @@
 /** BrightFuture - chapter and lesson management (PHP 8.0+, MySQL PDO). */
 declare(strict_types=1);
 require_once __DIR__ . '/../includes/permissions.php';
+require_once __DIR__ . '/../includes/portal_ui.php';
 $user = require_role(ROLE_TEACHER);
 header('Cache-Control: no-store, private');
 $teacherId = (int)$user['id'];
@@ -11,8 +12,8 @@ function lm_url(int $courseId, array $extra = []): string {
     return app_url('teacher/lessons.php?' . http_build_query(array_merge(['course_id' => $courseId], $extra)));
 }
 function lm_fail(string $message, int $status = 400): never {
-    http_response_code($status);
-    exit('<!doctype html><html lang="vi"><meta charset="utf-8"><title>BrightFuture</title><body style="font-family:Arial;padding:36px"><h2>Không thể thực hiện thao tác</h2><p>' . e($message) . '</p><a href="' . e(app_url('teacher/courses.php')) . '">Về danh sách khóa học</a></body></html>');
+    set_flash('error', $message);
+    redirect('teacher/courses.php');
 }
 function lm_position(mixed $value): int {
     $n = filter_var($value, FILTER_VALIDATE_INT, ['options' => ['min_range' => 1, 'max_range' => 100000]]);
@@ -102,6 +103,12 @@ $requestTooLarge = (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST')
     && (int)$_SERVER['CONTENT_LENGTH'] > bf_php_bytes((string)ini_get('post_max_size'))
     && bf_php_bytes((string)ini_get('post_max_size')) > 0;
 $courseId = positive_int($_GET['course_id'] ?? $_POST['course_id'] ?? null);
+if (!$courseId) {
+    // If no course_id specified in query, pick the teacher's most recently updated course if available
+    $defaultCourse = $pdo->prepare('SELECT id FROM courses WHERE teacher_id = :teacher ORDER BY id DESC LIMIT 1');
+    $defaultCourse->execute(['teacher' => $teacherId]);
+    $courseId = positive_int($defaultCourse->fetchColumn() ?: null);
+}
 if (!$courseId) lm_fail('Vui lòng chọn khóa học hợp lệ.', 400);
 $check = $pdo->prepare('SELECT id,title,status FROM courses WHERE id=:id AND teacher_id=:teacher LIMIT 1');
 $check->execute(['id'=>$courseId,'teacher'=>$teacherId]);
@@ -287,32 +294,149 @@ if ($editLessonId) {
 }
 $flash=get_flash();
 $publishedCount=count(array_filter($lessons,static fn($l)=>$l['status']==='published'));
+
+$pageTitle = 'Quản lý bài giảng - ' . $course['title'];
+$pageDescription = 'Quản lý chương học và bài giảng khóa học trên BrightFuture';
+$activeMenu = 'courses';
+$extraCss = ['css/bf-teacher-lessons.css'];
+
+require_once __DIR__ . '/../views/layouts/portal_head.php';
 ?>
-<!doctype html><html lang="vi"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Quản lý bài giảng | <?= e(APP_NAME) ?></title>
-<style>
-:root{--primary:#4f46e5;--violet:#7c3aed;--bg:#f6f8fc;--fg:#172033;--muted:#64748b;--line:#e7ebf2}*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--fg);font-family:Segoe UI,Arial,sans-serif}a{text-decoration:none;color:inherit}button,input,textarea,select{font:inherit}button{cursor:pointer}.layout{min-height:100vh;display:flex}.side{width:255px;background:#fff;border-right:1px solid var(--line);padding:24px 16px;display:flex;flex-direction:column;flex-shrink:0}.brand{font-weight:800;color:var(--primary);font-size:22px;display:flex;gap:9px;align-items:center;margin:10px 7px 35px}.logo{background:linear-gradient(135deg,var(--primary),var(--violet));color:white;border-radius:12px;padding:10px;font-size:14px}.nav{display:grid;gap:7px}.nav a{border-radius:11px;padding:13px 14px;font-size:14px;color:var(--muted)}.nav a.current,.nav a:hover{background:#eef2ff;color:var(--primary);font-weight:700}.side-footer{margin-top:auto;padding-top:20px}.side-footer p{font-size:13px;overflow-wrap:anywhere}.logout{background:#fff1f2;color:#be123c;border:0;padding:12px;border-radius:9px;width:100%;font-weight:600}.main{flex:1;min-width:0}.top{background:white;border-bottom:1px solid var(--line);padding:24px 32px;display:flex;justify-content:space-between;gap:14px;align-items:center}.top strong{font-size:15px}.content{max-width:1360px;margin:auto;padding:32px}.crumb{color:var(--muted);font-size:13px;margin-bottom:16px}.crumb a{color:var(--primary)}h1{font-size:27px;margin:0 0 9px}.subtitle{margin:0;color:var(--muted);font-size:14px;line-height:1.7}.headline{display:flex;justify-content:space-between;gap:14px;align-items:center;margin-bottom:25px}.btn{border:0;border-radius:10px;padding:11px 15px;font-weight:700;font-size:13px;display:inline-flex;align-items:center;justify-content:center;gap:7px}.btn-primary{background:var(--primary);color:white}.btn-soft{background:#eef2ff;color:var(--primary)}.btn-danger{background:#fff1f2;color:#be123c}.btn-neutral{background:#f1f5f9;color:#475569}.stats{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-bottom:22px}.stat{background:#fff;border:1px solid var(--line);padding:22px;border-radius:15px}.stat small{display:block;color:var(--muted);margin-bottom:9px}.stat strong{font-size:27px}.columns{display:grid;grid-template-columns:minmax(0,1fr) minmax(320px,420px);gap:22px;align-items:start}.panel{background:white;border:1px solid var(--line);border-radius:16px;padding:22px;margin-bottom:20px}.panel h2{font-size:18px;margin:0 0 18px}.chapter{border:1px solid var(--line);border-radius:13px;margin-bottom:15px;overflow:hidden}.chapter-head{background:#f8faff;padding:17px;display:flex;justify-content:space-between;align-items:start;gap:12px}.chapter-head strong{font-size:15px}.chapter-head p{font-size:12px;color:var(--muted);margin:8px 0 0}.actions{display:flex;gap:7px;flex-wrap:wrap}.small{border:0;border-radius:8px;padding:8px 10px;font-size:12px;font-weight:650;background:#eef2ff;color:var(--primary)}.small.danger{background:#fff1f2;color:#be123c}.lesson-row{display:flex;gap:12px;align-items:center;padding:13px 17px;border-top:1px solid var(--line)}.lesson-icon{display:grid;place-items:center;width:37px;height:37px;border-radius:10px;background:#eef2ff;color:var(--primary);font-weight:700;flex-shrink:0}.lesson-info{min-width:0;flex:1}.lesson-info strong{font-size:13px;display:block;overflow-wrap:anywhere}.lesson-info small{font-size:11px;color:var(--muted);display:block;margin-top:5px}.pill{font-size:11px;padding:4px 8px;border-radius:999px;background:#f1f5f9;color:#475569}.pill.pub{background:#dcfce7;color:#166534}.field{margin-bottom:14px}.field label{display:block;font-weight:650;font-size:13px;margin-bottom:7px}.field input,.field select,.field textarea{width:100%;border:1px solid #dbe1eb;border-radius:9px;padding:11px 12px;background:#fff;outline:none;font-size:13px}.field textarea{resize:vertical;min-height:94px}.field input:focus,.field select:focus,.field textarea:focus{border-color:var(--primary);box-shadow:0 0 0 3px #4f46e51a}.twocol{display:grid;grid-template-columns:1fr 1fr;gap:12px}.helper{font-size:12px;color:var(--muted);line-height:1.6}.check{display:flex;align-items:center;gap:9px;font-size:13px;margin:8px 0 16px}.check input{width:17px;height:17px}.flash{border-radius:10px;padding:13px 15px;margin-bottom:18px;font-size:13px}.flash.success{background:#f0fdf4;color:#166534;border:1px solid #bbf7d0}.flash.error{background:#fef2f2;color:#991b1b;border:1px solid #fecaca}.empty{text-align:center;color:var(--muted);padding:30px 12px;font-size:13px}.footer-actions{display:flex;gap:9px;flex-wrap:wrap;align-items:center}.panel-caption{font-size:12px;color:var(--muted);line-height:1.6}.form-anchor{scroll-margin-top:20px}.mobilebar{display:none}@media(max-width:1120px){.columns{grid-template-columns:1fr}.side{width:220px}.content{padding:23px}}@media(max-width:760px){.side{display:none}.mobilebar{display:flex;gap:10px;flex-wrap:wrap;padding:12px 17px;background:#fff;border-bottom:1px solid var(--line)}.mobilebar a{font-size:12px;color:var(--primary);font-weight:700}.top{padding:17px}.content{padding:19px 14px}.headline{align-items:start;flex-direction:column}.stats{grid-template-columns:1fr 1fr}.panel{padding:16px}.chapter-head{flex-direction:column}.lesson-row{align-items:start;flex-wrap:wrap}.lesson-row .actions{width:100%}}@media(max-width:470px){.stats{grid-template-columns:1fr}.twocol{grid-template-columns:1fr}}
-[hidden]{display:none!important}</style>
-<link rel="stylesheet" href="<?= e(app_url('css/bf-ux-refresh.css')) ?>">
-</head><body><div class="layout">
-<aside class="side"><a href="<?= e(app_url()) ?>" class="brand"><span class="logo">&lt;/&gt;</span>BrightFuture</a><nav class="nav">
-<a href="<?= e(app_url('social.php')) ?>">♧ Bạn bè & tin nhắn</a>
-<a href="<?= e(app_url('rooms.php')) ?>">◉ Phòng gọi nhóm</a><a href="<?= e(app_url('teacher/dashboard.php')) ?>">▦ Tổng quan</a><a class="current" href="<?= e(app_url('teacher/courses.php')) ?>">▤ Khóa học của tôi</a><a href="<?= e(app_url('teacher/exercises.php')) ?>">⌘ Quản lý bài tập</a><a href="<?= e(app_url('teacher/submissions.php')) ?>">✓ Chấm bài</a><a href="<?= e(app_url('profile.php')) ?>">☺ Hồ sơ</a><a href="<?= e(app_url()) ?>">⌂ Trang chủ</a></nav><div class="side-footer"><p><strong><?= e($user['full_name']) ?></strong><br>Giáo viên</p><form method="post" action="<?= e(app_url('logout.php')) ?>"><?= csrf_field() ?><button class="logout">Đăng xuất</button></form></div></aside>
-<div class="main"><header class="top"><strong>Không gian giảng dạy / Quản lý bài giảng</strong><span class="helper"><?= e($user['full_name']) ?></span></header><nav class="mobilebar"><a href="<?= e(app_url('teacher/dashboard.php')) ?>">Tổng quan</a><a href="<?= e(app_url('teacher/courses.php')) ?>">Khóa học</a><a href="<?= e(app_url('teacher/submissions.php')) ?>">Chấm bài</a></nav><main class="content"><div class="crumb"><a href="<?= e(app_url('teacher/courses.php')) ?>">Khóa học của tôi</a> / <?= e($course['title']) ?></div><div class="headline"><div><h1>Quản lý chương & bài giảng</h1><p class="subtitle"><?= e($course['title']) ?> · <?= $course['status']==='published'?'Đã công khai':'Bản nháp' ?></p></div><a class="btn btn-soft" href="<?= e(app_url('teacher/courses.php')) ?>">← Danh sách khóa học</a></div>
-<?php if($flash): ?><div class="flash <?= ($flash['type']??'')==='success'?'success':'error' ?>" role="status"><?= e((string)($flash['message']??'')) ?></div><?php endif; ?>
-<div class="panel" style="margin-bottom:16px"><strong>Kiểm tra tải video MP4 trên XAMPP</strong><p class="panel-caption">Apache đang dùng cấu hình PHP: <code><?= e((string)(php_ini_loaded_file() ?: 'Không xác định')) ?></code></p>
-<p class="panel-caption">file_uploads: <b><?= filter_var(ini_get('file_uploads'),FILTER_VALIDATE_BOOLEAN)?'On':'Off' ?></b> · upload_max_filesize: <b><?= e((string)ini_get('upload_max_filesize')) ?></b> · post_max_size: <b><?= e((string)ini_get('post_max_size')) ?></b> · Thư mục lưu: <code><?= e(bf_video_dir()) ?></code></p>
-<p class="panel-caption">Thư mục video: <b><?= is_dir(bf_video_dir()) ? (is_writable(bf_video_dir())?'Đã có, ghi được':'Đã có nhưng không ghi được') : 'Chưa tạo (tự tạo khi upload)' ?></b> · Hãy kiểm tra nút tải MP4 ở biểu mẫu bên phải và thử một video dưới 10 MB trước.</p></div>
-<div class="stats"><div class="stat"><small>Tổng chương học</small><strong><?= count($chapters) ?></strong></div><div class="stat"><small>Tổng bài giảng</small><strong><?= count($lessons) ?></strong></div><div class="stat"><small>Bài giảng công khai</small><strong><?= $publishedCount ?></strong></div></div>
-<div class="columns"><section><div class="panel"><h2>Danh sách chương và bài học</h2><?php if(!$chapters): ?><div class="empty">Chưa có chương học nào. Tạo chương ở biểu mẫu bên phải để bắt đầu.</div><?php endif; ?><?php foreach($chapters as $ch): ?><div class="chapter"><div class="chapter-head"><div><strong>Chương <?= (int)$ch['position'] ?>: <?= e($ch['title']) ?></strong><p><?= (int)$ch['lesson_count'] ?> bài giảng<?php if($ch['description']): ?> · <?= e($ch['description']) ?><?php endif; ?></p></div><div class="actions"><a class="small" href="<?= e(lm_url($courseId,['edit_chapter'=>(int)$ch['id']])) ?>#chapter-form">Sửa</a><form method="post" onsubmit="return confirm('Chỉ chương không có bài giảng công khai mới được xóa. Việc xóa sẽ xóa các bản nháp và dữ liệu liên quan. Tiếp tục?')"><?= csrf_field() ?><input type="hidden" name="action" value="delete_chapter"><input type="hidden" name="course_id" value="<?= $courseId ?>"><input type="hidden" name="chapter_id" value="<?= (int)$ch['id'] ?>"><button class="small danger">Xóa</button></form></div></div><?php foreach(($grouped[(int)$ch['id']]??[]) as $lesson): ?><div class="lesson-row"><div class="lesson-icon"><?= $lesson['lesson_type']==='video'?'▶':($lesson['lesson_type']==='code'?'{}':'≡') ?></div><div class="lesson-info"><strong><?= (int)$lesson['position'] ?>. <?= e($lesson['title']) ?></strong><small><?= e($lesson['lesson_type']) ?> · <?= (int)$lesson['duration_minutes'] ?> phút <?= (int)$lesson['is_preview']===1?'· Xem trước':'' ?></small></div><span class="pill <?= $lesson['status']==='published'?'pub':'' ?>"><?= $lesson['status']==='published'?'Công khai':'Bản nháp' ?></span><div class="actions"><a class="small" href="<?= e(app_url('discussions.php?lesson='.(int)$lesson['id'])) ?>">Thảo luận</a><a class="small" style="background:#e0f2fe;color:#075985" href="<?= e(app_url('teacher/exercises.php?'.http_build_query(['course_id'=>$courseId,'lesson_id'=>(int)$lesson['id'],'create'=>1]))) ?>">+ Trắc nghiệm bài này</a><a class="small" href="<?= e(lm_url($courseId,['edit_lesson'=>(int)$lesson['id']])) ?>#lesson-form">Sửa</a><?php if ($lesson['status'] === 'draft'): ?><form method="post" onsubmit="return confirm('Chỉ xóa bài giảng bản nháp này cùng tài liệu, bài tập và dữ liệu liên quan?')"><?= csrf_field() ?><input type="hidden" name="course_id" value="<?= $courseId ?>"><input type="hidden" name="lesson_id" value="<?= (int)$lesson['id'] ?>"><input type="hidden" name="action" value="delete_lesson"><button class="small danger">Xóa bản nháp</button></form><?php endif; ?></div></div><?php endforeach; ?></div><?php endforeach; ?></div></section>
-<section><div id="chapter-form" class="panel form-anchor"><h2><?= $editChapter?'Chỉnh sửa chương học':'Tạo chương mới' ?></h2><form method="post"><?= csrf_field() ?><input type="hidden" name="course_id" value="<?= $courseId ?>"><input type="hidden" name="action" value="<?= $editChapter?'update_chapter':'create_chapter' ?>"><?php if($editChapter): ?><input type="hidden" name="chapter_id" value="<?= (int)$editChapter['id'] ?>"><?php endif; ?><div class="field"><label for="chapter-title">Tên chương *</label><input id="chapter-title" name="title" required maxlength="255" value="<?= e($editChapter['title']??'') ?>" placeholder="Ví dụ: Làm quen với Python"></div><div class="field"><label for="chapter-description">Mô tả chương</label><textarea id="chapter-description" name="description" rows="3"><?= e($editChapter['description']??'') ?></textarea></div><div class="field"><label for="chapter-position">Thứ tự hiển thị</label><input id="chapter-position" type="number" min="1" max="100000" name="position" value="<?= (int)($editChapter['position']??count($chapters)+1) ?>"></div><div class="footer-actions"><button class="btn btn-primary"><?= $editChapter?'Lưu thay đổi':'Tạo chương' ?></button><?php if($editChapter): ?><a class="btn btn-neutral" href="<?= e(lm_url($courseId)) ?>#chapter-form">Hủy sửa</a><?php endif; ?></div></form></div>
-<div id="lesson-form" class="panel form-anchor"><h2><?= $editLesson?'Chỉnh sửa bài giảng':'Thêm bài giảng mới' ?></h2><?php if(!$chapters): ?><p class="panel-caption">Bạn cần tạo ít nhất một chương học trước khi thêm bài giảng.</p><?php else: ?><form method="post" enctype="multipart/form-data" action="<?= e(lm_url($courseId)) ?>#lesson-form"><?= csrf_field() ?><input type="hidden" name="MAX_FILE_SIZE" value="209715200"><input type="hidden" name="course_id" value="<?= $courseId ?>"><input type="hidden" name="action" value="<?= $editLesson?'update_lesson':'create_lesson' ?>"><?php if($editLesson): ?><input type="hidden" name="lesson_id" value="<?= (int)$editLesson['id'] ?>"><?php endif; ?><div class="field"><label for="lesson-chapter">Chương *</label><select id="lesson-chapter" name="chapter_id" required><?php foreach($chapters as $ch): ?><option value="<?= (int)$ch['id'] ?>" <?= (int)($editLesson['chapter_id']??$chapters[0]['id'])===(int)$ch['id']?'selected':'' ?>><?= e($ch['title']) ?></option><?php endforeach; ?></select></div><div class="field"><label for="lesson-title">Tên bài giảng *</label><input id="lesson-title" name="title" maxlength="255" required value="<?= e($editLesson['title']??'') ?>" placeholder="Ví dụ: Biến và kiểu dữ liệu"></div><div class="twocol"><div class="field"><label for="lesson-type">Loại bài học</label><select id="lesson-type" name="lesson_type"><?php foreach(['text'=>'Lý thuyết','video'=>'Video','code'=>'Code','mixed'=>'Kết hợp'] as $v=>$name): ?><option value="<?= e($v) ?>" <?= ($editLesson['lesson_type']??'text')===$v?'selected':'' ?>><?= e($name) ?></option><?php endforeach; ?></select></div><div class="field"><label for="lesson-position">Thứ tự</label><input id="lesson-position" type="number" min="1" max="100000" name="position" value="<?= (int)($editLesson['position']??1) ?>"></div></div><div class="field"><label for="lesson-content">Nội dung lý thuyết</label><textarea id="lesson-content" name="content" rows="7" placeholder="Nhập nội dung bài học (văn bản thuần)..."><?= e($editLesson['content']??'') ?></textarea><p class="helper">Nội dung được lưu dạng văn bản thuần; giao diện học viên phải escape HTML khi hiển thị.</p></div><div class="field"><label for="lesson-source">Nguồn video</label><select id="lesson-source" name="video_source">
-<?php $sourceNow=$editLesson['video_source']??'none'; if($sourceNow==='none' && !empty($editLesson['video_url'])) $sourceNow='youtube'; ?>
-<option value="none" <?= $sourceNow==='none'?'selected':'' ?>>Không có video</option>
-<option value="youtube" <?= $sourceNow==='youtube'?'selected':'' ?>>YouTube</option>
-<option value="upload" <?= $sourceNow==='upload'?'selected':'' ?>>Tải MP4 từ máy tính</option></select></div>
-<div id="youtube-input" class="field"><label for="lesson-video">Link YouTube (HTTPS)</label><input id="lesson-video" type="url" name="video_url" maxlength="1000" value="<?= e($editLesson['video_url']??'') ?>" placeholder="https://www.youtube.com/watch?v=..."></div>
-<div id="mp4-input" class="field"><label for="lesson-mp4">Tải video .mp4 (tối đa 200 MB)</label><input id="lesson-mp4" type="file" name="video_mp4" accept="video/mp4,.mp4"><p id="mp4-selected" class="helper"></p><p class="helper">Giới hạn PHP đang dùng: upload_max_filesize = <strong><?= e((string)ini_get('upload_max_filesize')) ?></strong>, post_max_size = <strong><?= e((string)ini_get('post_max_size')) ?></strong>. <?php if($editLesson && !empty($editLesson['video_file_path'])): ?>Đã có MP4; không chọn tệp mới nếu muốn giữ video cũ.<?php endif; ?></p></div>
-<div class="field"><label for="lesson-seconds">Thời lượng video (giây, tùy chọn)</label><input id="lesson-seconds" type="number" name="video_duration_seconds" min="0" max="86400" value="<?= (int)($editLesson['video_duration_seconds']??0) ?>"></div><div class="twocol"><div class="field"><label for="lesson-language">Ngôn ngữ code</label><input id="lesson-language" name="code_language" maxlength="50" value="<?= e($editLesson['code_language']??'') ?>" placeholder="python"></div><div class="field"><label for="lesson-duration">Thời lượng (phút)</label><input id="lesson-duration" type="number" name="duration_minutes" min="0" max="100000" value="<?= (int)($editLesson['duration_minutes']??0) ?>"></div></div><div class="field"><label for="lesson-code">Code mẫu</label><textarea id="lesson-code" name="code_example" rows="7" spellcheck="false" style="font-family:Consolas,monospace" placeholder="print('Hello BrightFuture')"><?= e($editLesson['code_example']??'') ?></textarea></div><div class="field"><label for="lesson-status">Trạng thái bài giảng</label><select id="lesson-status" name="status"><option value="draft" <?= ($editLesson['status']??'draft')==='draft'?'selected':'' ?>>Bản nháp</option><option value="published" <?= ($editLesson['status']??'draft')==='published'?'selected':'' ?>>Công khai</option></select></div><label class="check"><input type="checkbox" name="is_preview" value="1" <?= (int)($editLesson['is_preview']??0)===1?'checked':'' ?>>Cho phép xem trước bài học</label><div class="footer-actions"><button class="btn btn-primary"><?= $editLesson?'Lưu bài giảng':'Thêm bài giảng' ?></button><?php if($editLesson): ?><a class="btn btn-neutral" href="<?= e(lm_url($courseId)) ?>#lesson-form">Hủy sửa</a><?php endif; ?></div></form><?php endif; ?></div></section></div><p class="panel-caption">Chỉ có thể xóa bài giảng Bản nháp. Chương có bài giảng Công khai sẽ không thể xóa. Việc xóa bản nháp có thể xóa dữ liệu liên quan theo khóa ngoại ON DELETE CASCADE.</p></main></div></div><script>
+<?= bf_unified_sidebar($user, 'courses') ?>
+<?php require_once __DIR__ . '/../views/layouts/portal_topbar.php'; ?>
+<main class="content tl-content">
+    <div class="breadcrumb"><a href="<?= e(app_url('teacher/courses.php')) ?>">Khóa học của tôi</a> / <span><?= e($course['title']) ?></span></div>
+    <div class="headline">
+        <div>
+            <h1>Quản lý chương & bài giảng</h1>
+            <p class="subtitle"><?= e($course['title']) ?> · <?= $course['status']==='published'?'Đã công khai':'Bản nháp' ?></p>
+        </div>
+        <a class="btn btn-soft" href="<?= e(app_url('teacher/courses.php')) ?>">← Danh sách khóa học</a>
+    </div>
+    <?php if($flash): ?><div class="flash <?= ($flash['type']??'')==='success'?'success':'error' ?>" role="status"><?= e((string)($flash['message']??'')) ?></div><?php endif; ?>
+    <details class="panel" style="margin-bottom:16px;background:#f8fafc;cursor:pointer">
+        <summary style="font-weight:600;font-size:13px;color:#475569;display:flex;align-items:center;gap:8px">
+            <span>⚙️ Thông tin môi trường tải Video MP4 (Dành cho Quản trị/Kỹ thuật)</span>
+        </summary>
+        <div style="margin-top:14px;padding-top:12px;border-top:1px dashed #cbd5e1">
+            <p class="panel-caption">Apache PHP Config: <code><?= e((string)(php_ini_loaded_file() ?: 'Không xác định')) ?></code></p>
+            <p class="panel-caption">file_uploads: <b><?= filter_var(ini_get('file_uploads'),FILTER_VALIDATE_BOOLEAN)?'Bật (On)':'Tắt (Off)' ?></b> · upload_max_filesize: <b><?= e((string)ini_get('upload_max_filesize')) ?></b> · post_max_size: <b><?= e((string)ini_get('post_max_size')) ?></b></p>
+            <p class="panel-caption">Trạng thái thư mục video: <b><?= is_dir(bf_video_dir()) ? (is_writable(bf_video_dir())?'Sẵn sàng lưu trữ':'Chưa cấp quyền ghi') : 'Tự động khởi tạo khi upload' ?></b> (Dung lượng hỗ trợ tối đa 200 MB/file).</p>
+        </div>
+    </details>
+    <div class="stats">
+        <div class="stat"><small>Tổng chương học</small><strong><?= count($chapters) ?></strong></div>
+        <div class="stat"><small>Tổng bài giảng</small><strong><?= count($lessons) ?></strong></div>
+        <div class="stat"><small>Bài giảng công khai</small><strong><?= $publishedCount ?></strong></div>
+    </div>
+    <div class="columns">
+        <section>
+            <div class="panel">
+                <h2>Danh sách chương và bài học</h2>
+                <?php if(!$chapters): ?><div class="empty">Chưa có chương học nào. Tạo chương ở biểu mẫu bên phải để bắt đầu.</div><?php endif; ?>
+                <?php foreach($chapters as $ch): ?>
+                    <div class="chapter">
+                        <div class="chapter-head">
+                            <div>
+                                <strong>Chương <?= (int)$ch['position'] ?>: <?= e($ch['title']) ?></strong>
+                                <p><?= (int)$ch['lesson_count'] ?> bài giảng<?php if($ch['description']): ?> · <?= e($ch['description']) ?><?php endif; ?></p>
+                            </div>
+                            <div class="actions">
+                                <a class="small" href="<?= e(lm_url($courseId,['edit_chapter'=>(int)$ch['id']])) ?>#chapter-form">Sửa</a>
+                                <form method="post" onsubmit="return confirm('Chỉ chương không có bài giảng công khai mới được xóa. Việc xóa sẽ xóa các bản nháp và dữ liệu liên quan. Tiếp tục?')">
+                                    <?= csrf_field() ?>
+                                    <input type="hidden" name="action" value="delete_chapter">
+                                    <input type="hidden" name="course_id" value="<?= $courseId ?>">
+                                    <input type="hidden" name="chapter_id" value="<?= (int)$ch['id'] ?>">
+                                    <button class="small danger">Xóa</button>
+                                </form>
+                            </div>
+                        </div>
+                        <?php foreach(($grouped[(int)$ch['id']]??[]) as $lesson): ?>
+                            <div class="lesson-row">
+                                <div class="lesson-icon"><?= $lesson['lesson_type']==='video'?'▶':($lesson['lesson_type']==='code'?'{}':'≡') ?></div>
+                                <div class="lesson-info">
+                                    <strong><?= (int)$lesson['position'] ?>. <?= e($lesson['title']) ?></strong>
+                                    <small><?= e($lesson['lesson_type']) ?> · <?= (int)$lesson['duration_minutes'] ?> phút <?= (int)$lesson['is_preview']===1?'· Xem trước':'' ?></small>
+                                </div>
+                                <span class="pill <?= $lesson['status']==='published'?'pub':'' ?>"><?= $lesson['status']==='published'?'Công khai':'Bản nháp' ?></span>
+                                <div class="actions">
+                                    <a class="small" href="<?= e(app_url('discussions.php?lesson='.(int)$lesson['id'])) ?>">Thảo luận</a>
+                                    <a class="small" style="background:#e0f2fe;color:#075985" href="<?= e(app_url('teacher/exercises.php?'.http_build_query(['course_id'=>$courseId,'lesson_id'=>(int)$lesson['id'],'create'=>1]))) ?>">+ Trắc nghiệm bài này</a>
+                                    <a class="small" href="<?= e(lm_url($courseId,['edit_lesson'=>(int)$lesson['id']])) ?>#lesson-form">Sửa</a>
+                                    <?php if ($lesson['status'] === 'draft'): ?>
+                                        <form method="post" onsubmit="return confirm('Chỉ xóa bài giảng bản nháp này cùng tài liệu, bài tập và dữ liệu liên quan?')">
+                                            <?= csrf_field() ?>
+                                            <input type="hidden" name="course_id" value="<?= $courseId ?>">
+                                            <input type="hidden" name="lesson_id" value="<?= (int)$lesson['id'] ?>">
+                                            <input type="hidden" name="action" value="delete_lesson">
+                                            <button class="small danger">Xóa bản nháp</button>
+                                        </form>
+                                    <?php endif; ?>
+                                </div>
+                            </div>
+                        <?php endforeach; ?>
+                    </div>
+                <?php endforeach; ?>
+            </div>
+        </section>
+        <section>
+            <div id="chapter-form" class="panel form-anchor">
+                <h2><?= $editChapter?'Chỉnh sửa chương học':'Tạo chương mới' ?></h2>
+                <form method="post">
+                    <?= csrf_field() ?>
+                    <input type="hidden" name="course_id" value="<?= $courseId ?>">
+                    <input type="hidden" name="action" value="<?= $editChapter?'update_chapter':'create_chapter' ?>">
+                    <?php if($editChapter): ?><input type="hidden" name="chapter_id" value="<?= (int)$editChapter['id'] ?>"><?php endif; ?>
+                    <div class="field"><label for="chapter-title">Tên chương *</label><input id="chapter-title" name="title" required maxlength="255" value="<?= e($editChapter['title']??'') ?>" placeholder="Ví dụ: Làm quen với Python"></div>
+                    <div class="field"><label for="chapter-description">Mô tả chương</label><textarea id="chapter-description" name="description" rows="3"><?= e($editChapter['description']??'') ?></textarea></div>
+                    <div class="field"><label for="chapter-position">Thứ tự hiển thị</label><input id="chapter-position" type="number" min="1" max="100000" name="position" value="<?= (int)($editChapter['position']??count($chapters)+1) ?>"></div>
+                    <div class="footer-actions"><button class="btn btn-primary"><?= $editChapter?'Lưu thay đổi':'Tạo chương' ?></button><?php if($editChapter): ?><a class="btn btn-neutral" href="<?= e(lm_url($courseId)) ?>#chapter-form">Hủy sửa</a><?php endif; ?></div>
+                </form>
+            </div>
+            <div id="lesson-form" class="panel form-anchor">
+                <h2><?= $editLesson?'Chỉnh sửa bài giảng':'Thêm bài giảng mới' ?></h2>
+                <?php if(!$chapters): ?>
+                    <p class="panel-caption">Bạn cần tạo ít nhất một chương học trước khi thêm bài giảng.</p>
+                <?php else: ?>
+                    <form method="post" enctype="multipart/form-data" action="<?= e(lm_url($courseId)) ?>#lesson-form">
+                        <?= csrf_field() ?>
+                        <input type="hidden" name="MAX_FILE_SIZE" value="209715200">
+                        <input type="hidden" name="course_id" value="<?= $courseId ?>">
+                        <input type="hidden" name="action" value="<?= $editLesson?'update_lesson':'create_lesson' ?>">
+                        <?php if($editLesson): ?><input type="hidden" name="lesson_id" value="<?= (int)$editLesson['id'] ?>"><?php endif; ?>
+                        <div class="field"><label for="lesson-chapter">Chương *</label><select id="lesson-chapter" name="chapter_id" required><?php foreach($chapters as $ch): ?><option value="<?= (int)$ch['id'] ?>" <?= (int)($editLesson['chapter_id']??$chapters[0]['id'])===(int)$ch['id']?'selected':'' ?>><?= e($ch['title']) ?></option><?php endforeach; ?></select></div>
+                        <div class="field"><label for="lesson-title">Tên bài giảng *</label><input id="lesson-title" name="title" maxlength="255" required value="<?= e($editLesson['title']??'') ?>" placeholder="Ví dụ: Biến và kiểu dữ liệu"></div>
+                        <div class="twocol">
+                            <div class="field"><label for="lesson-type">Loại bài học</label><select id="lesson-type" name="lesson_type"><?php foreach(['text'=>'Lý thuyết','video'=>'Video','code'=>'Code','mixed'=>'Kết hợp'] as $v=>$name): ?><option value="<?= e($v) ?>" <?= ($editLesson['lesson_type']??'text')===$v?'selected':'' ?>><?= e($name) ?></option><?php endforeach; ?></select></div>
+                            <div class="field"><label for="lesson-position">Thứ tự</label><input id="lesson-position" type="number" min="1" max="100000" name="position" value="<?= (int)($editLesson['position']??1) ?>"></div>
+                        </div>
+                        <div class="field"><label for="lesson-content">Nội dung lý thuyết</label><textarea id="lesson-content" name="content" rows="7" placeholder="Nhập nội dung bài học (văn bản thuần)..."><?= e($editLesson['content']??'') ?></textarea><p class="helper">Nội dung được lưu dạng văn bản thuần; giao diện học viên phải escape HTML khi hiển thị.</p></div>
+                        <div class="field"><label for="lesson-source">Nguồn video</label><select id="lesson-source" name="video_source">
+                            <?php $sourceNow=$editLesson['video_source']??'none'; if($sourceNow==='none' && !empty($editLesson['video_url'])) $sourceNow='youtube'; ?>
+                            <option value="none" <?= $sourceNow==='none'?'selected':'' ?>>Không có video</option>
+                            <option value="youtube" <?= $sourceNow==='youtube'?'selected':'' ?>>YouTube</option>
+                            <option value="upload" <?= $sourceNow==='upload'?'selected':'' ?>>Tải MP4 từ máy tính</option></select>
+                        </div>
+                        <div id="youtube-input" class="field"><label for="lesson-video">Link YouTube (HTTPS)</label><input id="lesson-video" type="url" name="video_url" maxlength="1000" value="<?= e($editLesson['video_url']??'') ?>" placeholder="https://www.youtube.com/watch?v=..."></div>
+                        <div id="mp4-input" class="field"><label for="lesson-mp4">Tải video .mp4 (tối đa 200 MB)</label><input id="lesson-mp4" type="file" name="video_mp4" accept="video/mp4,.mp4"><p id="mp4-selected" class="helper"></p><p class="helper">Giới hạn PHP đang dùng: upload_max_filesize = <strong><?= e((string)ini_get('upload_max_filesize')) ?></strong>, post_max_size = <strong><?= e((string)ini_get('post_max_size')) ?></strong>. <?php if($editLesson && !empty($editLesson['video_file_path'])): ?>Đã có MP4; không chọn tệp mới nếu muốn giữ video cũ.<?php endif; ?></p></div>
+                        <div class="field"><label for="lesson-seconds">Thời lượng video (giây, tùy chọn)</label><input id="lesson-seconds" type="number" name="video_duration_seconds" min="0" max="86400" value="<?= (int)($editLesson['video_duration_seconds']??0) ?>"></div>
+                        <div class="twocol">
+                            <div class="field"><label for="lesson-language">Ngôn ngữ code</label><input id="lesson-language" name="code_language" maxlength="50" value="<?= e($editLesson['code_language']??'') ?>" placeholder="python"></div>
+                            <div class="field"><label for="lesson-duration">Thời lượng (phút)</label><input id="lesson-duration" type="number" name="duration_minutes" min="0" max="100000" value="<?= (int)($editLesson['duration_minutes']??0) ?>"></div>
+                        </div>
+                        <div class="field"><label for="lesson-code">Code mẫu</label><textarea id="lesson-code" name="code_example" rows="7" spellcheck="false" style="font-family:Consolas,monospace" placeholder="print('Hello BrightFuture')"><?= e($editLesson['code_example']??'') ?></textarea></div>
+                        <div class="field"><label for="lesson-status">Trạng thái bài giảng</label><select id="lesson-status" name="status"><option value="draft" <?= ($editLesson['status']??'draft')==='draft'?'selected':'' ?>>Bản nháp</option><option value="published" <?= ($editLesson['status']??'draft')==='published'?'selected':'' ?>>Công khai</option></select></div>
+                        <label class="check"><input type="checkbox" name="is_preview" value="1" <?= (int)($editLesson['is_preview']??0)===1?'checked':'' ?>>Cho phép xem trước bài học</label>
+                        <div class="footer-actions"><button class="btn btn-primary"><?= $editLesson?'Lưu bài giảng':'Thêm bài giảng' ?></button><?php if($editLesson): ?><a class="btn btn-neutral" href="<?= e(lm_url($courseId)) ?>#lesson-form">Hủy sửa</a><?php endif; ?></div>
+                    </form>
+                <?php endif; ?>
+            </div>
+        </section>
+    </div>
+    <p class="panel-caption">Chỉ có thể xóa bài giảng Bản nháp. Chương có bài giảng Công khai sẽ không thể xóa. Việc xóa bản nháp có thể xóa dữ liệu liên quan theo khóa ngoại ON DELETE CASCADE.</p>
+</main>
+<script>
 (function(){const sel=document.getElementById('lesson-source');if(!sel)return;
 const yt=document.getElementById('youtube-input'), mp=document.getElementById('mp4-input');
 function refresh(){yt.hidden=sel.value!=='youtube';mp.hidden=sel.value!=='upload';}
@@ -320,5 +444,4 @@ sel.addEventListener('change',refresh);refresh();
 const mp4=document.getElementById('lesson-mp4'), info=document.getElementById('mp4-selected');
 if(mp4&&info)mp4.addEventListener('change',()=>{const f=mp4.files&&mp4.files[0];info.textContent=f?'Đã chọn: '+f.name+' ('+(f.size/1024/1024).toFixed(1)+' MB)'+(f.size>209715200?' — vượt giới hạn 200 MB!':''):'';});})();
 </script>
-<script src="<?= e(app_url('js/bf-ux-refresh.js')) ?>" defer></script>
-</body></html>
+<?php require_once __DIR__ . '/../views/layouts/portal_foot.php'; ?>

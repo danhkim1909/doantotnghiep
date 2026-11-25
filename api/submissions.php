@@ -12,6 +12,8 @@
  */
 declare(strict_types=1);
 require_once __DIR__ . '/../includes/permissions.php';
+require_once __DIR__ . '/../includes/lesson_media.php';
+require_once __DIR__ . '/../includes/submission_storage.php';
 header('Content-Type: application/json; charset=utf-8');
 header('Cache-Control: no-store, private');
 header('X-Content-Type-Options: nosniff');
@@ -59,7 +61,7 @@ function subapi_exercise(PDO $pdo, int $exerciseId, int $studentId, bool $lock =
             JOIN enrollments en ON en.course_id = c.id
                 AND en.student_id = :student_id AND en.status IN ('active','completed')
             WHERE ex.id = :exercise_id AND ex.status = 'published'
-                AND l.status = 'published' AND c.status = 'published'
+                AND l.status = 'published' AND c.status = 'published' AND c.deleted_at IS NULL
             LIMIT 1";
     if ($lock) $sql .= ' FOR UPDATE';
     $stmt = $pdo->prepare($sql);
@@ -153,8 +155,9 @@ function subapi_grade_quiz(PDO $pdo, int $exerciseId, array $answers): array {
         $all[$qid] = true;
         if ((int)$r['is_correct'] === 1) $correct[$qid][] = (int)$r['oid'];
     }
-    if (count($all) !== 10) {
-        subapi_send(409, 'Bài trắc nghiệm cần đúng 10 câu hỏi trước khi mở cho học viên.');
+    $total = count($all);
+    if ($total < 1) {
+        subapi_send(409, 'Bài trắc nghiệm chưa có câu hỏi nào.');
     }
     $selected = [];
     foreach ($answers as $pair) {
@@ -167,7 +170,8 @@ function subapi_grade_quiz(PDO $pdo, int $exerciseId, array $answers): array {
         sort($key, SORT_NUMERIC); sort($answer, SORT_NUMERIC);
         if ($key && $key === $answer) ++$right;
     }
-    return ['correct' => $right, 'wrong' => 10 - $right, 'passed' => $right >= 5];
+    $passed = ($right / $total) >= 0.5;
+    return ['correct' => $right, 'wrong' => $total - $right, 'total' => $total, 'passed' => $passed];
 }
 
 /** Check all published quizzes in the lesson have at least one passing graded submission. */
@@ -209,20 +213,6 @@ function subapi_validate_file(mixed $upload): array {
     // Reject polyglot/script disguised as a document for common plain text and image types.
     return ['tmp' => $tmp, 'extension' => $ext, 'size' => $size];
 }
-/** Upload directory is denied for direct Apache requests; teacher serves through permission check. */
-function subapi_prepare_upload_dir(): string {
-    $path = rtrim(UPLOAD_PATH, '/\\') . DIRECTORY_SEPARATOR . 'submissions';
-    if (!is_dir($path) && !mkdir($path, 0700, true) && !is_dir($path)) {
-        throw new RuntimeException('Unable to create submission storage.');
-    }
-    if (is_link($path)) throw new RuntimeException('Symlink upload dir rejected.');
-    $deny = $path . DIRECTORY_SEPARATOR . '.htaccess';
-    if (!is_file($deny)) {
-        $contents = "Options -Indexes\n<IfModule mod_authz_core.c>\nRequire all denied\n</IfModule>\n<IfModule !mod_authz_core.c>\nDeny from all\n</IfModule>\n";
-        if (file_put_contents($deny, $contents, LOCK_EX) === false) throw new RuntimeException('Unable to protect submission storage.');
-    }
-    return $path;
-}
 function subapi_check_csrf(array $body): void {
     // api_require_csrf() is the existing JSON-aware authorization helper.
     // For multipart/form data, require_csrf() validates the posted form token.
@@ -245,6 +235,25 @@ try {
     if ($method === 'GET') {
         $sid = isset($_GET['id']) ? subapi_id($_GET['id']) : null;
         $eid = isset($_GET['exercise_id']) ? subapi_id($_GET['exercise_id']) : null;
+        if (get_query('action') === 'download') {
+            if ($sid === null || isset($_GET['exercise_id'])) {
+                subapi_send(422, 'ID bài nộp không hợp lệ.');
+            }
+            $submission = subapi_submission($pdo, $sid, $studentId);
+            if (!$submission) subapi_send(404, 'Không tìm thấy bài nộp.');
+            $filePath = is_string($submission['file_path'] ?? null)
+                ? bf_submission_resolve_file($submission['file_path'])
+                : null;
+            if ($filePath === null) subapi_send(404, 'Không tìm thấy tệp bài nộp.');
+
+            header('Content-Type: application/octet-stream');
+            header('Content-Disposition: attachment; filename="submission-' . $sid . '-' . basename($filePath) . '"');
+            $fileSize = filesize($filePath);
+            if ($fileSize !== false) header('Content-Length: ' . $fileSize);
+            header('X-Content-Type-Options: nosniff');
+            readfile($filePath);
+            exit;
+        }
         if (isset($_GET['id']) && $sid === null || isset($_GET['exercise_id']) && $eid === null || ($sid !== null && $eid !== null)) {
             subapi_send(422, 'Chỉ cung cấp id hoặc exercise_id hợp lệ.');
         }
@@ -346,29 +355,37 @@ try {
         if (!$ex) { $pdo->rollBack(); subapi_send(404, 'Bài tập không còn khả dụng.'); }
         if ($ex['exercise_type'] === 'quiz') {
             // Must have watched >=90% of this lesson since the last failed quiz.
-            $video = $pdo->prepare('SELECT l.video_duration_seconds,l.duration_minutes,l.lesson_type,l.video_url,l.video_file_path
+            $video = $pdo->prepare('SELECT l.id,l.video_duration_seconds,l.duration_minutes,l.lesson_type,l.video_source,l.video_url,l.video_file_path
                 FROM lessons l WHERE l.id=? LIMIT 1');
             $video->execute([(int)$ex['lesson_id']]);
             $v = $video->fetch(PDO::FETCH_ASSOC);
             $duration = (int)($v['video_duration_seconds'] ?? 0);
             if ($duration <= 0) $duration = (int)($v['duration_minutes'] ?? 0) * 60;
-            $hasVideo = $v && ($v['lesson_type'] === 'video' || $v['lesson_type'] === 'mixed')
-                && ($v['video_url'] || $v['video_file_path']);
+            $hasVideo = $v && bf_lesson_has_video($v);
             if ($hasVideo) {
-                $prog = $pdo->prepare('SELECT last_position_seconds FROM lesson_progress
+                $prog = $pdo->prepare('SELECT last_position_seconds, status FROM lesson_progress
                     WHERE student_id=? AND lesson_id=? LIMIT 1 FOR UPDATE');
                 $prog->execute([$studentId,(int)$ex['lesson_id']]);
-                $watched = (int)$prog->fetchColumn();
-                if ($duration <= 0 || $watched < (int)ceil($duration * .90)) {
-                    $pdo->rollBack(); subapi_send(409, 'Bạn cần xem ít nhất 90% video bài học trước khi làm trắc nghiệm. Nếu vừa làm sai, hãy học lại video.');
+                $progressRow = $prog->fetch(PDO::FETCH_ASSOC);
+                $watched = (int)($progressRow['last_position_seconds'] ?? 0);
+                $isCompleted = ($progressRow['status'] ?? '') === 'completed';
+                if ($duration > 0) {
+                    if (!$isCompleted && $watched < (int)ceil($duration * .90)) {
+                        $pdo->rollBack(); subapi_send(409, 'Bạn cần xem ít nhất 90% video bài học trước khi làm trắc nghiệm. Nếu vừa làm sai, hãy học lại video.');
+                    }
+                } else {
+                    if (!$progressRow) {
+                        $pdo->rollBack(); subapi_send(409, 'Bạn cần học bài giảng này trước khi làm trắc nghiệm.');
+                    }
                 }
             }
         }
         $last = $pdo->prepare('SELECT attempt_number,status FROM exercise_submissions WHERE exercise_id=:eid AND student_id=:sid ORDER BY attempt_number DESC,id DESC LIMIT 1 FOR UPDATE');
         $last->execute(['eid' => $exerciseId, 'sid' => $studentId]);
         $previous = $last->fetch(PDO::FETCH_ASSOC);
+        $isRevision = $previous && $previous['status'] === 'returned';
         $attempt = $previous ? (int)$previous['attempt_number'] + 1 : 1;
-        if ($ex['max_attempts'] !== null && $attempt > (int)$ex['max_attempts']) {
+        if (!$isRevision && $ex['max_attempts'] !== null && $attempt > (int)$ex['max_attempts']) {
             $pdo->rollBack(); subapi_send(409, 'Bạn đã dùng hết số lần nộp cho phép. Hãy liên hệ giáo viên nếu cần bổ sung.');
         }
         if ($ex['deadline'] !== null) {
@@ -380,13 +397,13 @@ try {
         }
         $filePath = null;
         if ($upload !== null) {
-            $dir = subapi_prepare_upload_dir();
+            $dir = bf_submission_storage_dir();
             $fileName = bin2hex(random_bytes(20)) . '.' . $upload['extension'];
             $target = $dir . DIRECTORY_SEPARATOR . $fileName;
             if (!move_uploaded_file($upload['tmp'], $target)) throw new RuntimeException('Unable to save uploaded file.');
-            @chmod($target, 0600);
+            if (!chmod($target, 0600)) throw new RuntimeException('Unable to protect uploaded file.');
             $saved = $target;
-            $filePath = 'uploads/submissions/' . $fileName;
+            $filePath = bf_submission_file_key($fileName);
         }
         $insert = $pdo->prepare("INSERT INTO exercise_submissions
             (exercise_id, student_id, attempt_number, submitted_code, submitted_text, file_path, status, submitted_at)
@@ -402,10 +419,11 @@ try {
         if ($ex['exercise_type'] === 'quiz') {
             $grading = subapi_grade_quiz($pdo, $exerciseId, $answers);
             $maxScore = (float)$ex['max_score'];
-            $quizScore = round($maxScore * $grading['correct'] / 10, 2);
+            $totalQ = $grading['total'] > 0 ? (int)$grading['total'] : 1;
+            $quizScore = round($maxScore * $grading['correct'] / $totalQ, 2);
             $feedback = $grading['passed']
-                ? 'Đạt: đúng ' . $grading['correct'] . '/10 câu, sai ' . $grading['wrong'] . ' câu.'
-                : 'Chưa đạt: sai ' . $grading['wrong'] . '/10 câu. Bạn cần học lại video và làm lại trắc nghiệm.';
+                ? 'Đạt: đúng ' . $grading['correct'] . '/' . $totalQ . ' câu, sai ' . $grading['wrong'] . ' câu.'
+                : 'Chưa đạt: đúng ' . $grading['correct'] . '/' . $totalQ . ' câu (cần đạt ít nhất 50%). Bạn cần học lại video và làm lại trắc nghiệm.';
             $graded = $pdo->prepare("UPDATE exercise_submissions SET status='graded',score=:score,feedback=:feedback,graded_at=NOW()
                 WHERE id=:id AND student_id=:sid");
             $graded->execute(['score'=>$quizScore,'feedback'=>$feedback,'id'=>$submissionId,'sid'=>$studentId]);
@@ -424,7 +442,7 @@ try {
         if ($grading !== null) {
             subapi_send(201, $feedback, ['id'=>$submissionId,'exercise_id'=>$exerciseId,
                 'attempt_number'=>$attempt,'status'=>'graded','score'=>$quizScore,
-                'max_score'=>$maxScore,'correct'=>$grading['correct'],'wrong'=>$grading['wrong'],
+                'max_score'=>$maxScore,'total'=>$totalQ,'correct'=>$grading['correct'],'wrong'=>$grading['wrong'],
                 'passed'=>$grading['passed'],'must_rewatch'=>!$grading['passed']]);
         }
         subapi_send(201, 'Nộp bài thành công. Giáo viên sẽ đánh giá và phản hồi.', [
